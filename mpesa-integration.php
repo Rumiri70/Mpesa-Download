@@ -50,7 +50,7 @@ class MpesaIntegrationPlugin {
             phone_number varchar(15) NOT NULL,
             first_name varchar(100) NOT NULL,
             mpesa_name varchar(100) DEFAULT '',
-            amount decimal(10,2) NOT NULL DEFAULT 2.00,
+            amount decimal(10,2) NOT NULL DEFAULT 1.00,
             checkout_request_id varchar(100) DEFAULT '',
             merchant_request_id varchar(100) DEFAULT '',
             status varchar(20) DEFAULT 'pending',
