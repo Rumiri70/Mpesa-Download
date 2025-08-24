@@ -615,41 +615,112 @@ class MpesaIntegrationPlugin {
         }
     }
     
-    public function verify_payment_status() {
-        check_ajax_referer('mpesa_nonce', 'nonce');
+public function verify_payment_status() {
+    check_ajax_referer('mpesa_nonce', 'nonce');
+    
+    $payment_id = intval($_POST['payment_id']);
+    
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'mpesa_payments';
+    
+    $payment = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $payment_id));
+    
+    if (!$payment) {
+        wp_send_json_error('Payment not found');
+        return;
+    }
+    
+    // If payment is already completed, return current status
+    if (in_array($payment->status, ['done', 'success', 'stk_canceled', 'invalid_name'])) {
+        wp_send_json_success(array(
+            'status' => $payment->status,
+            'mpesa_name' => $payment->mpesa_name,
+            'entered_name' => $payment->first_name
+        ));
+        return;
+    }
+    
+    // Query M-Pesa API for payment status
+    if (!empty($payment->checkout_request_id)) {
+        $stk_result = $this->query_stk_status($payment->checkout_request_id);
         
-        $payment_id = intval($_POST['payment_id']);
-        
-        global $wpdb;
-        $table_name = $wpdb->prefix . 'mpesa_payments';
-        
-        $payment = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $payment_id));
-        
-        if (!$payment) {
-            wp_send_json_error('Payment not found');
-            return;
-        }
-        
-        // Compare names (case-insensitive)
-        if (strtolower(trim($real_name)) === strtolower(trim($payment->mpesa_name))) {
-            // Names match - allow download
+        if ($stk_result['success']) {
+            $new_status = $stk_result['status'];
+            $mpesa_name = isset($stk_result['mpesa_name']) ? $stk_result['mpesa_name'] : '';
+            
+            // Update payment record with new status and M-Pesa name
+            $update_data = array('status' => $new_status);
+            if (!empty($mpesa_name)) {
+                $update_data['mpesa_name'] = $mpesa_name;
+            }
+            
             $wpdb->update(
                 $table_name,
-                array('status' => 'done'),
+                $update_data,
                 array('id' => $payment_id),
-                array('%s'),
+                array('%s', '%s'),
                 array('%d')
             );
             
             wp_send_json_success(array(
-                'verified' => true,
-                'download_url' => $this->generate_download_url()
+                'status' => $new_status,
+                'mpesa_name' => $mpesa_name,
+                'entered_name' => $payment->first_name
             ));
         } else {
-            // Names don't match
-            wp_send_json_error('Name verification failed. Please contact us at 254738207774 for help.');
+            // If API query fails, keep status as pending
+            wp_send_json_success(array(
+                'status' => 'pending',
+                'mpesa_name' => $payment->mpesa_name,
+                'entered_name' => $payment->first_name
+            ));
         }
+    } else {
+        // No checkout request ID, keep as pending
+        wp_send_json_success(array(
+            'status' => 'pending',
+            'mpesa_name' => $payment->mpesa_name,
+            'entered_name' => $payment->first_name
+        ));
     }
+}
+
+public function verify_name() {
+    check_ajax_referer('mpesa_nonce', 'nonce');
+    
+    $payment_id = intval($_POST['payment_id']);
+    $real_name = sanitize_text_field($_POST['real_name']);
+    
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'mpesa_payments';
+    
+    $payment = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $payment_id));
+    
+    if (!$payment) {
+        wp_send_json_error('Payment not found');
+        return;
+    }
+    
+    // Compare names (case-insensitive)
+    if (strtolower(trim($real_name)) === strtolower(trim($payment->mpesa_name))) {
+        // Names match - allow download
+        $wpdb->update(
+            $table_name,
+            array('status' => 'success'),
+            array('id' => $payment_id),
+            array('%s'),
+            array('%d')
+        );
+        
+        wp_send_json_success(array(
+            'verified' => true,
+            'download_url' => $this->generate_download_url()
+        ));
+    } else {
+        // Names don't match
+        wp_send_json_error('Name verification failed. Please contact us at 254738207774 for help.');
+    }
+}
     
     public function test_mpesa_connection() {
         check_ajax_referer('mpesa_test_nonce', 'nonce');
