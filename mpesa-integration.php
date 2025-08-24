@@ -494,7 +494,7 @@ class MpesaIntegrationPlugin {
     public function download_shortcode($atts) {
         $atts = shortcode_atts(array(
             'recipient' => 'David',
-            'amount' => '2'
+            'amount' => '1'
         ), $atts);
         
         ob_start();
