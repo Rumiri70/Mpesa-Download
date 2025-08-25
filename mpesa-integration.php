@@ -3,7 +3,7 @@
  * Plugin Name: M-Pesa Integration Plugin
  * Description: WordPress plugin for M-Pesa payment integration with download functionality (Production Till Mode)
  * Version: 1.0.0
- * Author: Your Name
+ * Author: Rumiri
  */
 
 // Prevent direct access
@@ -685,6 +685,8 @@ public function verify_payment_status() {
     }
 }
 
+//  verify_name method 
+
 public function verify_name() {
     check_ajax_referer('mpesa_nonce', 'nonce');
     
@@ -701,24 +703,76 @@ public function verify_name() {
         return;
     }
     
-    // Compare names (case-insensitive)
-    if (strtolower(trim($real_name)) === strtolower(trim($payment->mpesa_name))) {
+    // Check if M-Pesa name has been received yet
+    if (empty($payment->mpesa_name) || $payment->mpesa_name === '') {
+        wp_send_json_error('M-Pesa name not yet received. Please wait a moment and try again.');
+        return;
+    }
+    
+    // Clean and normalize names for comparison
+    $entered_name = strtolower(trim(preg_replace('/\s+/', ' ', $real_name)));
+    $mpesa_name = strtolower(trim(preg_replace('/\s+/', ' ', $payment->mpesa_name)));
+    
+    // Extract first names for comparison
+    $entered_first = strtolower(trim(explode(' ', $entered_name)[0]));
+    $mpesa_first = strtolower(trim(explode(' ', $mpesa_name)[0]));
+    
+    // Try multiple comparison methods
+    $name_matches = false;
+    $match_type = '';
+    
+    // 1. Exact full name match
+    if ($entered_name === $mpesa_name) {
+        $name_matches = true;
+        $match_type = 'full_name';
+    }
+    // 2. First name match
+    elseif ($entered_first === $mpesa_first) {
+        $name_matches = true;
+        $match_type = 'first_name';
+    }
+    // 3. Check if entered name contains M-Pesa name or vice versa
+    elseif (strpos($entered_name, $mpesa_name) !== false || strpos($mpesa_name, $entered_name) !== false) {
+        $name_matches = true;
+        $match_type = 'partial';
+    }
+    
+    if ($name_matches) {
         // Names match - allow download
         $wpdb->update(
             $table_name,
-            array('status' => 'success'),
+            array(
+                'status' => 'success',
+                'updated_at' => current_time('mysql')
+            ),
             array('id' => $payment_id),
-            array('%s'),
+            array('%s', '%s'),
             array('%d')
         );
         
+        error_log("Name verification successful for payment ID {$payment_id}. Match type: {$match_type}");
+        
         wp_send_json_success(array(
             'verified' => true,
-            'download_url' => $this->generate_download_url()
+            'download_url' => $this->generate_download_url(),
+            'message' => 'Name verification successful! Download will start shortly.'
         ));
     } else {
-        // Names don't match
-        wp_send_json_error('Name verification failed. Please contact us at 254738207774 for help.');
+        // Names don't match - update status and provide clear error
+        $wpdb->update(
+            $table_name,
+            array(
+                'status' => 'invalid_name',
+                'updated_at' => current_time('mysql')
+            ),
+            array('id' => $payment_id),
+            array('%s', '%s'),
+            array('%d')
+        );
+        
+        error_log("Name verification failed for payment ID {$payment_id}. Entered: '{$real_name}', M-Pesa: '{$payment->mpesa_name}'");
+        
+        wp_send_json_error("Your M-Pesa name doesn't match the one you entered. M-Pesa name: '{$payment->mpesa_name}', You entered: '{$real_name}'. Please contact us at 254738207774 for help.");
     }
 }
     
