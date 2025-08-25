@@ -794,6 +794,31 @@ public function verify_name() {
             wp_send_json_error('Invalid test type');
         }
     }
+
+    
+//  method to check if M-Pesa name has been received
+public function check_mpesa_name() {
+    check_ajax_referer('mpesa_nonce', 'nonce');
+    
+    $payment_id = intval($_POST['payment_id']);
+    
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'mpesa_payments';
+    
+    $payment = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $payment_id));
+    
+    if (!$payment) {
+        wp_send_json_error('Payment not found');
+        return;
+    }
+    
+    wp_send_json_success(array(
+        'status' => $payment->status,
+        'has_mpesa_name' => !empty($payment->mpesa_name),
+        'mpesa_name' => $payment->mpesa_name,
+        'entered_name' => $payment->first_name
+    ));
+}
     
     private function test_credentials() {
         $consumer_key = get_option('mpesa_consumer_key');
