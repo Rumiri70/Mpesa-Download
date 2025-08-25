@@ -29,6 +29,8 @@ class MpesaIntegrationPlugin {
         add_action('wp_ajax_verify_name', array($this, 'verify_name'));
         add_action('wp_ajax_nopriv_verify_name', array($this, 'verify_name'));
         add_action('wp_ajax_test_mpesa_connection', array($this, 'test_mpesa_connection'));
+        add_action('wp_ajax_check_mpesa_name', array($this, 'check_mpesa_name'));
+        add_action('wp_ajax_nopriv_check_mpesa_name', array($this, 'check_mpesa_name'));
         
         register_activation_hook(__FILE__, array($this, 'create_tables'));
     }
