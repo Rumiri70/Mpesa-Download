@@ -28,6 +28,8 @@ class MpesaIntegrationPlugin {
         add_action('wp_ajax_nopriv_verify_payment_status', array($this, 'verify_payment_status'));
         add_action('wp_ajax_verify_name', array($this, 'verify_name'));
         add_action('wp_ajax_nopriv_verify_name', array($this, 'verify_name'));
+        add_action('wp_ajax_get_download_url', array($this, 'get_download_url'));
+        add_action('wp_ajax_nopriv_get_download_url', array($this, 'get_download_url'));
         add_action('wp_ajax_test_mpesa_connection', array($this, 'test_mpesa_connection'));
         add_action('wp_ajax_check_mpesa_name', array($this, 'check_mpesa_name'));
         add_action('wp_ajax_nopriv_check_mpesa_name', array($this, 'check_mpesa_name'));
@@ -689,6 +691,67 @@ public function verify_payment_status() {
 
 //  verify_name method 
 
+public function get_download_url() {
+    check_ajax_referer('mpesa_nonce', 'nonce');
+    
+    $payment_id = intval($_POST['payment_id']);
+    
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'mpesa_payments';
+    
+    $payment = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $payment_id));
+    
+    if (!$payment) {
+        wp_send_json_error('Payment not found');
+        return;
+    }
+    
+    // CRITICAL: Only allow download if status is 'success' (verified)
+    if ($payment->status !== 'success') {
+        wp_send_json_error('Payment not verified. Download not allowed.');
+        return;
+    }
+    
+    // CRITICAL: Ensure M-Pesa name exists (additional safety check)
+    if (empty($payment->mpesa_name)) {
+        wp_send_json_error('Name verification incomplete. Download not allowed.');
+        return;
+    }
+    
+    // Generate secure, time-limited download URL
+    $download_url = $this->generate_secure_download_url($payment_id);
+    
+    if ($download_url) {
+        wp_send_json_success(array(
+            'download_url' => $download_url,
+            'message' => 'Download link generated successfully'
+        ));
+    } else {
+        wp_send_json_error('Failed to generate download link');
+    }
+}
+
+// Add this to the constructor's action hooks:
+// add_action('wp_ajax_get_download_url', array($this, 'get_download_url'));
+// add_action('wp_ajax_nopriv_get_download_url', array($this, 'get_download_url'));
+
+private function generate_secure_download_url($payment_id) {
+    // Create a secure token
+    $token = wp_generate_password(32, false);
+    $expires = time() + (30 * 60); // 30 minutes from now
+    
+    // Store the token in WordPress options or database
+    update_option("download_token_{$payment_id}", array(
+        'token' => $token,
+        'expires' => $expires,
+        'used' => false
+    ), false);
+    
+    // Return secure URL
+    return home_url("/secure-download.php?payment={$payment_id}&token={$token}");
+}
+
+// Enhanced verify_name method with stricter checks
 public function verify_name() {
     check_ajax_referer('mpesa_nonce', 'nonce');
     
@@ -705,7 +768,13 @@ public function verify_name() {
         return;
     }
     
-    // Check if M-Pesa name has been received yet
+    // CRITICAL: Payment must be 'done' to proceed with verification
+    if ($payment->status !== 'done') {
+        wp_send_json_error('Payment not completed. Verification not allowed.');
+        return;
+    }
+    
+    // CRITICAL: M-Pesa name must exist
     if (empty($payment->mpesa_name) || $payment->mpesa_name === '') {
         wp_send_json_error('M-Pesa name not yet received. Please wait a moment and try again.');
         return;
@@ -719,7 +788,7 @@ public function verify_name() {
     $entered_first = strtolower(trim(explode(' ', $entered_name)[0]));
     $mpesa_first = strtolower(trim(explode(' ', $mpesa_name)[0]));
     
-    // Try multiple comparison methods
+    // STRICT name verification
     $name_matches = false;
     $match_type = '';
     
@@ -728,20 +797,22 @@ public function verify_name() {
         $name_matches = true;
         $match_type = 'full_name';
     }
-    // 2. First name match
-    elseif ($entered_first === $mpesa_first) {
+    // 2. First name match (minimum 3 characters to avoid false positives)
+    elseif ($entered_first === $mpesa_first && strlen($entered_first) >= 3) {
         $name_matches = true;
         $match_type = 'first_name';
     }
-    // 3. Check if entered name contains M-Pesa name or vice versa
-    elseif (strpos($entered_name, $mpesa_name) !== false || strpos($mpesa_name, $entered_name) !== false) {
-        $name_matches = true;
-        $match_type = 'partial';
+    // 3. Partial match (more conservative)
+    elseif (strlen($entered_name) >= 5 && strlen($mpesa_name) >= 5) {
+        if (strpos($entered_name, $mpesa_name) !== false || strpos($mpesa_name, $entered_name) !== false) {
+            $name_matches = true;
+            $match_type = 'partial';
+        }
     }
     
     if ($name_matches) {
-        // Names match - allow download
-        $wpdb->update(
+        // Names match - ONLY NOW set status to 'success'
+        $updated = $wpdb->update(
             $table_name,
             array(
                 'status' => 'success',
@@ -752,15 +823,18 @@ public function verify_name() {
             array('%d')
         );
         
-        error_log("Name verification successful for payment ID {$payment_id}. Match type: {$match_type}");
-        
-        wp_send_json_success(array(
-            'verified' => true,
-            'download_url' => $this->generate_download_url(),
-            'message' => 'Name verification successful! Download will start shortly.'
-        ));
+        if ($updated) {
+            error_log("Name verification successful for payment ID {$payment_id}. Match type: {$match_type}");
+            
+            wp_send_json_success(array(
+                'verified' => true,
+                'message' => 'Name verification successful! You can now download.'
+            ));
+        } else {
+            wp_send_json_error('Failed to update payment status.');
+        }
     } else {
-        // Names don't match - update status and provide clear error
+        // Names don't match - set invalid_name status
         $wpdb->update(
             $table_name,
             array(
@@ -774,9 +848,10 @@ public function verify_name() {
         
         error_log("Name verification failed for payment ID {$payment_id}. Entered: '{$real_name}', M-Pesa: '{$payment->mpesa_name}'");
         
-        wp_send_json_error("Your M-Pesa name doesn't match the one you entered. M-Pesa name: '{$payment->mpesa_name}', You entered: '{$real_name}'. Please contact us at 254738207774 for help.");
+        wp_send_json_error("Name verification failed. M-Pesa name: '{$payment->mpesa_name}', You entered: '{$real_name}'. Please contact support for help.");
     }
 }
+
     
     public function test_mpesa_connection() {
         check_ajax_referer('mpesa_test_nonce', 'nonce');

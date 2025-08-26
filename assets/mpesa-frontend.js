@@ -165,90 +165,194 @@ jQuery(document).ready(function($) {
         }, 300000);
     }
     
-    function checkPaymentStatus() {
+// Fixed version - NEVER allow download without proper name verification
+function checkPaymentStatus() {
+    $.ajax({
+        url: mpesa_ajax.ajax_url,
+        type: 'POST',
+        data: {
+            action: 'verify_payment_status',
+            nonce: mpesa_ajax.nonce,
+            payment_id: currentPaymentId
+        },
+        success: function(response) {
+            if (response.success) {
+                const status = response.data.status;
+                const mpesaName = response.data.mpesa_name || '';
+                const enteredName = response.data.entered_name || '';
+                
+                console.log('Payment Status:', status);
+                console.log('M-Pesa Name:', mpesaName);
+                console.log('Entered Name:', enteredName);
+                
+                switch (status) {
+                    case 'done':
+                        clearInterval(statusCheckInterval);
+                        
+                        // CRITICAL: Only proceed if we have M-Pesa name for verification
+                        if (mpesaName && mpesaName.trim() !== '') {
+                            // We have M-Pesa name - do automatic verification
+                            autoVerifyName(enteredName, mpesaName);
+                        } else {
+                            // NO M-PESA NAME YET - Keep waiting and checking
+                            showStatus('info', 'Payment received. Waiting for name confirmation...');
+                            
+                            // Start a new interval to keep checking for M-Pesa name
+                            setTimeout(function() {
+                                // Check again in 10 seconds for M-Pesa name
+                                if (currentPaymentId) {
+                                    checkPaymentStatus();
+                                }
+                            }, 10000);
+                            
+                            // After 2 minutes of waiting, require manual verification
+                            setTimeout(function() {
+                                if (currentPaymentId) {
+                                    showStatus('warning', 'Name verification required. Please enter your M-Pesa name manually.');
+                                    $('#mpesa-payment-modal').hide();
+                                    $('#mpesa-name-modal').show();
+                                }
+                            }, 120000); // 2 minutes
+                        }
+                        break;
+                        
+                    case 'success':
+                        // Payment already verified - safe to download
+                        clearInterval(statusCheckInterval);
+                        showStatus('success', 'Payment verified! Your download will start now.');
+                        setTimeout(function() {
+                            startDownload();
+                        }, 2000);
+                        break;
+                        
+                    case 'stk_canceled':
+                        clearInterval(statusCheckInterval);
+                        showStatus('error', 'STK Push was canceled. Please try again.');
+                        resetPaymentForm();
+                        break;
+                        
+                    case 'invalid_name':
+                        clearInterval(statusCheckInterval);
+                        showStatus('error', 'Name verification failed. Please contact us for help.');
+                        resetPaymentForm();
+                        break;
+                        
+                    case 'failed':
+                        clearInterval(statusCheckInterval);
+                        showStatus('error', 'Payment failed. Please try again.');
+                        resetPaymentForm();
+                        break;
+                        
+                    case 'pending':
+                        showStatus('info', 'Waiting for payment confirmation...');
+                        break;
+                        
+                    default:
+                        showStatus('info', 'Checking payment status...');
+                }
+            } else {
+                const errorMsg = getErrorMessage(response.data);
+                showStatus('error', 'Failed to check payment status: ' + errorMsg);
+            }
+        },
+        error: function() {
+            showStatus('warning', 'Connection error while checking status...');
+        }
+    });
+}
+
+// Enhanced automatic name verification
+function autoVerifyName(enteredName, mpesaName) {
+    // Clean names for comparison
+    const cleanEntered = enteredName.toLowerCase().trim();
+    const cleanMpesa = mpesaName.toLowerCase().trim();
+    
+    // Get first names
+    const enteredFirst = cleanEntered.split(' ')[0];
+    const mpesaFirst = cleanMpesa.split(' ')[0];
+    
+    console.log('Auto-verifying names:', cleanEntered, 'vs', cleanMpesa);
+    
+    // STRICT name matching - only allow if names clearly match
+    let nameMatches = false;
+    
+    if (cleanEntered === cleanMpesa) {
+        nameMatches = true;
+        console.log('Full name match');
+    } else if (enteredFirst === mpesaFirst && enteredFirst.length >= 3) {
+        // Only allow first name match if it's at least 3 characters (avoid false positives)
+        nameMatches = true;
+        console.log('First name match');
+    }
+    
+    if (nameMatches) {
+        // Names match - call server verification to update database
         $.ajax({
             url: mpesa_ajax.ajax_url,
             type: 'POST',
             data: {
-                action: 'verify_payment_status',
+                action: 'verify_name',
                 nonce: mpesa_ajax.nonce,
-                payment_id: currentPaymentId
+                payment_id: currentPaymentId,
+                real_name: mpesaName // Use M-Pesa name for verification
             },
             success: function(response) {
-                if (response.success) {
-                    const status = response.data.status;
-                    const mpesaName = response.data.mpesa_name || '';
-                    const enteredName = response.data.entered_name || '';
-                    
-                    console.log('Payment Status:', status);
-                    console.log('M-Pesa Name:', mpesaName);
-                    console.log('Entered Name:', enteredName);
-                    
-                    switch (status) {
-                        case 'done':
-                        case 'success':
-                            clearInterval(statusCheckInterval);
-                            
-                            // Compare names if both exist
-                            if (mpesaName && enteredName) {
-                                if (mpesaName.toLowerCase().trim() === enteredName.toLowerCase().trim()) {
-                                    // Names match - proceed to download
-                                    showStatus('success', 'Payment successful! Your download will start now.');
-                                    setTimeout(function() {
-                                        // Generate download URL or use a fixed one
-                                        const downloadUrl = '/wp-content/uploads/your-file.zip'; // Replace with actual file
-                                        window.location.href = downloadUrl;
-                                        $('.mpesa-modal').hide();
-                                        resetForms();
-                                    }, 2000);
-                                } else {
-                                    // Names don't match - ask for real name
-                                    showStatus('warning', 'Name verification required. The name on your M-Pesa account doesn\'t match what you entered.');
-                                    $('#mpesa-payment-modal').hide();
-                                    $('#mpesa-name-modal').show();
-                                }
-                            } else {
-                                // No name comparison needed - proceed to download
-                                showStatus('success', 'Payment successful! Your download will start now.');
-                                setTimeout(function() {
-                                    const downloadUrl = '/wp-content/uploads/your-file.zip'; // Replace with actual file
-                                    window.location.href = downloadUrl;
-                                    $('.mpesa-modal').hide();
-                                    resetForms();
-                                }, 2000);
-                            }
-                            break;
-                            
-                        case 'stk_canceled':
-                            clearInterval(statusCheckInterval);
-                            showStatus('error', 'STK Push was canceled. Please try again.');
-                            resetPaymentForm();
-                            break;
-                            
-                        case 'invalid_name':
-                        case 'failed':
-                            clearInterval(statusCheckInterval);
-                            showStatus('error', 'Payment failed. Please try again.');
-                            resetPaymentForm();
-                            break;
-                            
-                        case 'pending':
-                            showStatus('info', 'Waiting for payment confirmation...');
-                            break;
-                            
-                        default:
-                            showStatus('info', 'Checking payment status...');
-                    }
+                if (response.success && response.data.verified) {
+                    showStatus('success', 'Payment verified! Your download will start now.');
+                    setTimeout(function() {
+                        startDownload();
+                    }, 2000);
                 } else {
-                    const errorMsg = getErrorMessage(response.data);
-                    showStatus('error', 'Failed to check payment status: ' + errorMsg);
+                    // Auto-verification failed on server, show manual form
+                    showManualVerification();
                 }
             },
             error: function() {
-                showStatus('warning', 'Connection error while checking status...');
+                // Auto-verification failed, show manual form
+                showManualVerification();
             }
         });
+    } else {
+        // Names don't match - REQUIRE manual verification
+        console.log('Names do not match - requiring manual verification');
+        showManualVerification();
     }
+}
+
+function showManualVerification() {
+    showStatus('warning', 'Name verification required. Please enter your M-Pesa name exactly as it appears on your account.');
+    $('#mpesa-payment-modal').hide();
+    $('#mpesa-name-modal').show();
+}
+
+// SECURE download function - only called after verification
+function startDownload() {
+    // Get download URL from server (this should generate a secure, time-limited URL)
+    $.ajax({
+        url: mpesa_ajax.ajax_url,
+        type: 'POST',
+        data: {
+            action: 'get_download_url',
+            nonce: mpesa_ajax.nonce,
+            payment_id: currentPaymentId
+        },
+        success: function(response) {
+            if (response.success && response.data.download_url) {
+                // Use server-provided download URL
+                window.location.href = response.data.download_url;
+            } else {
+                showStatus('error', 'Failed to generate download link. Please contact support.');
+            }
+        },
+        error: function() {
+            showStatus('error', 'Failed to get download link. Please contact support.');
+        },
+        complete: function() {
+            $('.mpesa-modal').hide();
+            resetForms();
+        }
+    });
+}
     
     function showStatus(type, message) {
         const statusDiv = $('#mpesa-status');
