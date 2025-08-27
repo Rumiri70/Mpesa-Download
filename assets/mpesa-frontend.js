@@ -320,7 +320,7 @@ function autoVerifyName(enteredName, mpesaName) {
 }
 
 function showManualVerification() {
-    showStatus('warning', 'Name verification required. Please enter your M-Pesa name exactly as it appears on your account.');
+    showStatus('warning', 'Name verification required. Please enter your M-Pesa first name exactly as it appears on your account.');
     $('#mpesa-payment-modal').hide();
     $('#mpesa-name-modal').show();
 }
@@ -345,7 +345,7 @@ function startDownload() {
             }
         },
         error: function() {
-            showStatus('error', 'Failed to get download link. Please contact support.');
+            showStatus('error', 'Failed to get download link. Please contact +254 727 054 097 support.');
         },
         complete: function() {
             $('.mpesa-modal').hide();

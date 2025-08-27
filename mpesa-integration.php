@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: M-Pesa Integration Plugin
+ * Plugin Name: Do-pay
  * Description: WordPress plugin for M-Pesa payment integration with download functionality (Production Till Mode)
  * Version: 1.0.0
  * Author: Rumiri
@@ -17,6 +17,7 @@ define('MPESA_PLUGIN_PATH', plugin_dir_path(__FILE__));
 
 class MpesaIntegrationPlugin {
     
+    // Constructor 
     public function __construct() {
         add_action('init', array($this, 'init'));
         add_action('admin_menu', array($this, 'add_admin_menu'));
@@ -36,12 +37,14 @@ class MpesaIntegrationPlugin {
         
         register_activation_hook(__FILE__, array($this, 'create_tables'));
     }
-    
+
+    // Initialize plugin
     public function init() {
         // Add shortcode for download button
         add_shortcode('mpesa_download', array($this, 'download_shortcode'));
     }
     
+    // Create database tables
     public function create_tables() {
         global $wpdb;
         
@@ -66,7 +69,8 @@ class MpesaIntegrationPlugin {
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql);
     }
-    
+
+    // Add admin menu and pages
     public function add_admin_menu() {
         add_menu_page(
             'M-Pesa Integration',
@@ -106,6 +110,7 @@ class MpesaIntegrationPlugin {
         );
     }
     
+    // Enqueue frontend and admin scripts/styles
     public function enqueue_scripts() {
         wp_enqueue_script('jquery');
         wp_enqueue_script('mpesa-frontend', MPESA_PLUGIN_URL . 'assets/mpesa-frontend.js', array('jquery'), '1.0.0', true);
@@ -122,6 +127,7 @@ class MpesaIntegrationPlugin {
         wp_enqueue_style('mpesa-admin', MPESA_PLUGIN_URL . 'assets/mpesa-admin.css', array(), '1.0.0');
     }
     
+    // Admin main page
     public function admin_page() {
         ?>
         <div class="wrap">
@@ -152,6 +158,7 @@ class MpesaIntegrationPlugin {
         <?php
     }
     
+    // Settings page
     public function settings_page() {
         if (isset($_POST['submit'])) {
             update_option('mpesa_consumer_key', sanitize_text_field($_POST['consumer_key']));
@@ -202,10 +209,10 @@ class MpesaIntegrationPlugin {
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row">Till Number (Business Shortcode)</th>
+                        <th scope="row"> Business Shortcode</th>
                         <td>
                             <input type="text" name="business_shortcode" value="<?php echo esc_attr($business_shortcode); ?>" class="regular-text" required />
-                            <p class="description">Your Till Number (e.g., 174379)</p>
+                            <p class="description">Your business shortcode (e.g., 174379)</p>
                         </td>
                     </tr>
                     <tr>
@@ -229,6 +236,7 @@ class MpesaIntegrationPlugin {
         <?php
     }
     
+    // Dashboard page
     public function dashboard_page() {
         global $wpdb;
         $table_name = $wpdb->prefix . 'mpesa_payments';
@@ -271,9 +279,10 @@ class MpesaIntegrationPlugin {
             FROM $table_name
         ");
         ?>
+      
 
         <div class="wrap">
-            <h1>Payment Dashboard (Production)</h1>
+            <h1>Payment Dashboard</h1>
 
             
             <!-- Statistics -->
@@ -304,6 +313,7 @@ class MpesaIntegrationPlugin {
                         <th>First Name</th>
                         <th>M-Pesa Name</th>
                         <th>Amount</th>
+                        <th>Mpesa code</th>
                         <th>Status</th>
                         <th>Created At</th>
                         <th>Actions</th>
@@ -317,6 +327,7 @@ class MpesaIntegrationPlugin {
                         <td><?php echo esc_html($payment->first_name); ?></td>
                         <td><?php echo esc_html($payment->mpesa_name); ?></td>
                         <td>KSH <?php echo number_format($payment->amount, 2); ?></td>
+                        <td><?php echo esc_html($payment->mpesa_receipt_number); ?> </td>
                         <td>
                             <span class="status-<?php echo $payment->status; ?>">
                                 <?php echo ucfirst($payment->status); ?>
@@ -352,6 +363,7 @@ class MpesaIntegrationPlugin {
         <?php
     }
     
+    // Test Connection page
     public function test_page() {
         ?>
         <div class="wrap">
@@ -495,9 +507,10 @@ class MpesaIntegrationPlugin {
         <?php
     }
     
+    // Shortcode for download button and payment modal
     public function download_shortcode($atts) {
         $atts = shortcode_atts(array(
-            'recipient' => 'David',
+            'recipient' => 'TEACHER DAVID GLOBAL',
             'amount' => '1'
         ), $atts);
         
@@ -511,7 +524,7 @@ class MpesaIntegrationPlugin {
                 <div class="mpesa-modal-content">
                     <span class="mpesa-close">&times;</span>
                     <h3>Payment Required</h3>
-                    <p>Please enter your phone number to send KSH <?php echo esc_html($atts['amount']); ?> to <?php echo esc_html($atts['recipient']); ?></p>
+                    <p>Please enter details to send KSH <?php echo esc_html($atts['amount']); ?> to <?php echo esc_html($atts['recipient']); ?></p>
                     
                     <form id="mpesa-payment-form">
                         <div class="mpesa-form-group">
@@ -519,11 +532,13 @@ class MpesaIntegrationPlugin {
                             <input type="tel" id="phone_number" name="phone_number" placeholder="254712345678" required>
                         </div>
                         <div class="mpesa-form-group">
-                            <label for="first_name">First Name:</label>
+                            <label for="first_name">First Mpesa Name:</label>
                             <input type="text" id="first_name" name="first_name" placeholder="Enter your first name" required>
                         </div>
                         <input type="hidden" name="amount" value="<?php echo esc_attr($atts['amount']); ?>">
                         <input type="hidden" name="recipient" value="<?php echo esc_attr($atts['recipient']); ?>">
+                        
+                        <p>For your safety: All data submitted is strictly confidential and protected.</p>
                         
                         <div class="mpesa-form-actions">
                             <button type="submit" id="mpesa-pay-btn">Pay Now</button>
@@ -559,6 +574,7 @@ class MpesaIntegrationPlugin {
         return ob_get_clean();
     }
     
+    // Process M-Pesa payment
     public function process_mpesa_payment() {
         check_ajax_referer('mpesa_nonce', 'nonce');
         
@@ -690,7 +706,6 @@ public function verify_payment_status() {
 }
 
 //  verify_name method 
-
 public function get_download_url() {
     check_ajax_referer('mpesa_nonce', 'nonce');
     
@@ -731,10 +746,7 @@ public function get_download_url() {
     }
 }
 
-// Add this to the constructor's action hooks:
-// add_action('wp_ajax_get_download_url', array($this, 'get_download_url'));
-// add_action('wp_ajax_nopriv_get_download_url', array($this, 'get_download_url'));
-
+// Generate a secure, time-limited download URL
 private function generate_secure_download_url($payment_id) {
     // Create a secure token
     $token = wp_generate_password(32, false);

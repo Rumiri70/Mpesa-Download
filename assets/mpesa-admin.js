@@ -221,13 +221,13 @@ jQuery(document).ready(function($) {
                             
                         case 'stk_canceled':
                             clearInterval(statusCheckInterval);
-                            showStatus('error', 'STK Push was canceled. Please try again.');
+                            showStatus('error', 'STK Push was canceled. Please try again later.');
                             resetPaymentForm();
                             break;
                             
                         case 'invalid_name':
                             clearInterval(statusCheckInterval);
-                            showStatus('error', 'Name verification failed. Please contact us at 254738207774 for help.');
+                            showStatus('error', 'Name verification failed. Please contact us at +254 727 054 097 for help.');
                             resetPaymentForm();
                             break;
                             
@@ -302,14 +302,14 @@ jQuery(document).ready(function($) {
     }
     
     function showManualVerification() {
-        showStatus('warning', 'Name verification required. Please enter your M-Pesa name.');
+        showStatus('warning', 'Name verification required. Please enter your M-Pesa first name.');
         $('#mpesa-payment-modal').hide();
         $('#mpesa-name-modal').show();
     }
     
     function startDownload() {
         // Replace with your actual download URL
-        const downloadUrl = '/wp-content/uploads/your-file.zip';
+        const downloadUrl = '/wp-content/uploads/2025/08/THE-WORLDS-BEST-DRIVING-THEORY-BOOK.pdf';
         window.location.href = downloadUrl;
         $('.mpesa-modal').hide();
         resetForms();
