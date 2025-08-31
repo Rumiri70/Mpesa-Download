@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
 return array(
     // M-Pesa Production Credentials
     'consumer_key' => 'jhPYEVb7S8s7GtXlGAH5mKjv0LWlLUrnxGnRDVZBEoUJmPcJ',
-    'consumer_secret' => 'jhPYEVb7S8s7GtXlGAH5mKjv0LWlLUrnxGnRDVZBEoUJmPcJ',
+    'consumer_secret' => 'MFHtbpeQU7CaglAumn3Ltug3fNyoY4H4Z3HEDDqz0Mas5MoTx2zDZRRlsHIA5WXo',
     'business_shortcode' => '7275464', // e.g., 174379
     'passkey' => '2b70cccd38ef52377ababf31db475a69778b5aa290a8da103b7ddf5085ae4bc0',
     
