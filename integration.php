@@ -15,7 +15,7 @@ if (!defined('ABSPATH')) {
 define('MPESA_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MPESA_PLUGIN_PATH', plugin_dir_path(__FILE__));
 
-class MpesaIntegrationPlugin {
+class IntegrationPlugin {
     
     private $config;
     
@@ -44,7 +44,7 @@ class MpesaIntegrationPlugin {
 
     // Load configuration from config file
     private function load_config() {
-        $config_file = MPESA_PLUGIN_PATH . 'config.php';
+        $config_file = MPESA_PLUGIN_PATH . 'mpesa-config.php';
         
         if (file_exists($config_file)) {
             $this->config = include $config_file;
@@ -59,7 +59,7 @@ class MpesaIntegrationPlugin {
     public function config_missing_notice() {
         ?>
         <div class="notice notice-error">
-            <p><strong>M-Pesa Plugin Error:</strong> Configuration file 'config.php' not found. Please create the config file with your M-Pesa credentials.</p>
+            <p><strong>M-Pesa Plugin Error:</strong> Configuration file 'mpesa-config.php' not found. Please create the config file with your M-Pesa credentials.</p>
         </div>
         <?php
     }
@@ -127,8 +127,8 @@ class MpesaIntegrationPlugin {
     // Enqueue frontend and admin scripts/styles
     public function enqueue_scripts() {
         wp_enqueue_script('jquery');
-        wp_enqueue_script('mpesa-frontend', MPESA_PLUGIN_URL . 'assets/mpesa-frontend.js', array('jquery'), '1.0.0', true);
-        wp_enqueue_style('mpesa-frontend', MPESA_PLUGIN_URL . 'assets/mpesa-frontend.css', array(), '1.0.0');
+        wp_enqueue_script('mpesa-frontend', MPESA_PLUGIN_URL . 'assets/frontend.js', array('jquery'), '1.0.0', true);
+        wp_enqueue_style('mpesa-frontend', MPESA_PLUGIN_URL . 'assets/frontend.css', array(), '1.0.0');
         
         wp_localize_script('mpesa-frontend', 'mpesa_ajax', array(
             'ajax_url' => admin_url('admin-ajax.php'),
@@ -137,8 +137,8 @@ class MpesaIntegrationPlugin {
     }
     
     public function admin_enqueue_scripts() {
-        wp_enqueue_script('mpesa-admin', MPESA_PLUGIN_URL . 'assets/mpesa-admin.js', array('jquery'), '1.0.0', true);
-        wp_enqueue_style('mpesa-admin', MPESA_PLUGIN_URL . 'assets/mpesa-admin.css', array(), '1.0.0');
+        wp_enqueue_script('mpesa-admin', MPESA_PLUGIN_URL . 'assets/admin.js', array('jquery'), '1.0.0', true);
+        wp_enqueue_style('mpesa-admin', MPESA_PLUGIN_URL . 'assets/admin.css', array(), '1.0.0');
     }
     
     // Admin main page (updated to show config status instead of settings link)
@@ -152,7 +152,7 @@ class MpesaIntegrationPlugin {
             <div class="notice <?php echo $config_class; ?>">
                 <p><strong>Configuration Status:</strong> <?php echo $config_status; ?></p>
                 <?php if (empty($this->config)): ?>
-                <p>Please create and configure the 'config.php' file with your M-Pesa credentials.</p>
+                <p>Please create and configure the 'mpesa-config.php' file with your M-Pesa credentials.</p>
                 <?php endif; ?>
             </div>
             
@@ -162,7 +162,7 @@ class MpesaIntegrationPlugin {
                 
                 <p><strong>Configuration:</strong></p>
                 <ul class="card">
-                    <li class="card">Edit 'config.php' file to update M-Pesa credentials</li>
+                    <li class="card">Edit 'mpesa-config.php' file to update M-Pesa credentials</li>
                     <li class="card"><a href="<?php echo admin_url('admin.php?page=mpesa-dashboard'); ?>">View Payment Dashboard</a></li>
                 </ul>
 
@@ -333,9 +333,13 @@ class MpesaIntegrationPlugin {
                                 <select name="new_status">
                                     <option value="pending" <?php selected($payment->status, 'pending'); ?>>Pending</option>
                                     <option value="done" <?php selected($payment->status, 'done'); ?>>Done</option>
-                                    <option value="stk_canceled" <?php selected($payment->status, 'stk_canceled'); ?>>STK Canceled</option>
-                                    <option value="invalid_name" <?php selected($payment->status, 'invalid_name'); ?>>Invalid Name</option>
                                     <option value="success" <?php selected($payment->status, 'success'); ?>>Success</option>
+                                    <option value="stk_canceled" <?php selected($payment->status, 'stk_canceled'); ?>>STK Canceled</option>
+                                    <option value="timeout" <?php selected($payment->status, 'timeout'); ?>>Timeout</option>
+                                    <option value="failed" <?php selected($payment->status, 'failed'); ?>>Failed</option>
+                                    <option value="insufficient_funds" <?php selected($payment->status, 'insufficient_funds'); ?>>Insufficient Funds</option>
+                                    <option value="invalid_phone" <?php selected($payment->status, 'invalid_phone'); ?>>Invalid Phone</option>
+                                    <option value="invalid_name" <?php selected($payment->status, 'invalid_name'); ?>>Invalid Name</option>
                                 </select>
                                 <button type="submit" name="edit_payment_status" class="button">Update</button>
                             </form>
@@ -491,8 +495,8 @@ public function verify_payment_status() {
         return;
     }
     
-    // If payment is already completed, return current status
-    if (in_array($payment->status, ['done', 'success', 'stk_canceled', 'invalid_name'])) {
+    // If payment is already completed (successful or failed), return current status
+    if (in_array($payment->status, ['done', 'success', 'stk_canceled', 'invalid_name', 'failed', 'timeout', 'insufficient_funds', 'invalid_phone'])) {
         wp_send_json_success(array(
             'status' => $payment->status,
             'mpesa_name' => $payment->mpesa_name,
@@ -508,20 +512,32 @@ public function verify_payment_status() {
         if ($stk_result['success']) {
             $new_status = $stk_result['status'];
             $mpesa_name = isset($stk_result['mpesa_name']) ? $stk_result['mpesa_name'] : '';
+            $receipt_number = isset($stk_result['receipt_number']) ? $stk_result['receipt_number'] : '';
             
-            // Update payment record with new status and M-Pesa name
+            // Update payment record with new status, M-Pesa name, and receipt number
             $update_data = array('status' => $new_status);
+            $update_format = array('%s');
+            
             if (!empty($mpesa_name)) {
                 $update_data['mpesa_name'] = $mpesa_name;
+                $update_format[] = '%s';
+            }
+            
+            if (!empty($receipt_number)) {
+                $update_data['mpesa_receipt_number'] = $receipt_number;
+                $update_format[] = '%s';
             }
             
             $wpdb->update(
                 $table_name,
                 $update_data,
                 array('id' => $payment_id),
-                array('%s', '%s'),
+                $update_format,
                 array('%d')
             );
+            
+            // Log the status for debugging
+            error_log("Payment ID {$payment_id} status updated to: {$new_status}");
             
             wp_send_json_success(array(
                 'status' => $new_status,
@@ -883,33 +899,64 @@ public function check_mpesa_name() {
         $response_body = wp_remote_retrieve_body($response);
         $response_data = json_decode($response_body, true);
         
-        if ($response_data['ResponseCode'] === '0') {
+        error_log('STK Query Response: ' . $response_body);
+        
+        if (isset($response_data['ResponseCode']) && $response_data['ResponseCode'] === '0') {
             $result_code = $response_data['ResultCode'];
             
-            if ($result_code === '0') {
-                // Payment successful
-                $mpesa_name = '';
-                if (isset($response_data['CallbackMetadata']['Item'])) {
-                    foreach ($response_data['CallbackMetadata']['Item'] as $item) {
-                        if ($item['Name'] === 'FirstName') {
-                            $mpesa_name = $item['Value'];
-                            break;
+            // Handle all possible result codes properly
+            switch ($result_code) {
+                case '0':
+                    // Payment successful
+                    $mpesa_name = '';
+                    $receipt_number = '';
+                    
+                    if (isset($response_data['CallbackMetadata']['Item'])) {
+                        foreach ($response_data['CallbackMetadata']['Item'] as $item) {
+                            if ($item['Name'] === 'FirstName') {
+                                $mpesa_name = $item['Value'];
+                            } elseif ($item['Name'] === 'MpesaReceiptNumber') {
+                                $receipt_number = $item['Value'];
+                            }
                         }
                     }
-                }
-                
-                return array(
-                    'success' => true,
-                    'status' => 'done',
-                    'mpesa_name' => $mpesa_name
-                );
-            } elseif ($result_code === '1032') {
-                return array('success' => true, 'status' => 'stk_canceled');
-            } else {
-                return array('success' => true, 'status' => 'invalid_name');
+                    
+                    return array(
+                        'success' => true,
+                        'status' => 'done',
+                        'mpesa_name' => $mpesa_name,
+                        'receipt_number' => $receipt_number
+                    );
+                    
+                case '1032':
+                    // User canceled the STK push
+                    return array('success' => true, 'status' => 'stk_canceled');
+                    
+                case '1037':
+                    // Timeout - user didn't respond to STK push
+                    return array('success' => true, 'status' => 'timeout');
+                    
+                case '1001':
+                    // Insufficient funds
+                    return array('success' => true, 'status' => 'insufficient_funds');
+                    
+                case '2001':
+                    // Invalid phone number
+                    return array('success' => true, 'status' => 'invalid_phone');
+                    
+                default:
+                    // Other error codes - treat as failed
+                    error_log('M-Pesa STK Query - Unknown result code: ' . $result_code);
+                    return array('success' => true, 'status' => 'failed');
             }
-        } else {
+        } elseif (isset($response_data['ResponseCode']) && $response_data['ResponseCode'] === '1') {
+            // Request is still being processed
             return array('success' => true, 'status' => 'pending');
+        } else {
+            // API error or unexpected response
+            $error_msg = isset($response_data['ResponseDescription']) ? $response_data['ResponseDescription'] : 'Unknown API error';
+            error_log('M-Pesa STK Query Error: ' . $error_msg);
+            return array('success' => false, 'message' => $error_msg);
         }
     }
     
@@ -953,5 +1000,5 @@ public function check_mpesa_name() {
 }
 
 // Initialize the plugin
-new MpesaIntegrationPlugin();
+new IntegrationPlugin();
 ?>
