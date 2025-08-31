@@ -44,7 +44,7 @@ class IntegrationPlugin {
 
     // Load configuration from config file
     private function load_config() {
-        $config_file = MPESA_PLUGIN_PATH . 'mpesa-config.php';
+        $config_file = MPESA_PLUGIN_PATH . 'config.php';
         
         if (file_exists($config_file)) {
             $this->config = include $config_file;
@@ -59,7 +59,7 @@ class IntegrationPlugin {
     public function config_missing_notice() {
         ?>
         <div class="notice notice-error">
-            <p><strong>M-Pesa Plugin Error:</strong> Configuration file 'mpesa-config.php' not found. Please create the config file with your M-Pesa credentials.</p>
+            <p><strong>M-Pesa Plugin Error:</strong> Configuration file 'config.php' not found. Please create the config file with your M-Pesa credentials.</p>
         </div>
         <?php
     }
@@ -152,7 +152,7 @@ class IntegrationPlugin {
             <div class="notice <?php echo $config_class; ?>">
                 <p><strong>Configuration Status:</strong> <?php echo $config_status; ?></p>
                 <?php if (empty($this->config)): ?>
-                <p>Please create and configure the 'mpesa-config.php' file with your M-Pesa credentials.</p>
+                <p>Please create and configure the 'config.php' file with your M-Pesa credentials.</p>
                 <?php endif; ?>
             </div>
             
@@ -162,7 +162,7 @@ class IntegrationPlugin {
                 
                 <p><strong>Configuration:</strong></p>
                 <ul class="card">
-                    <li class="card">Edit 'mpesa-config.php' file to update M-Pesa credentials</li>
+                    <li class="card">Edit 'config.php' file to update M-Pesa credentials</li>
                     <li class="card"><a href="<?php echo admin_url('admin.php?page=mpesa-dashboard'); ?>">View Payment Dashboard</a></li>
                 </ul>
 
