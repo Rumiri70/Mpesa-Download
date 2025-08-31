@@ -17,8 +17,13 @@ define('MPESA_PLUGIN_PATH', plugin_dir_path(__FILE__));
 
 class MpesaIntegrationPlugin {
     
+    private $config;
+    
     // Constructor 
     public function __construct() {
+        // Load configuration
+        $this->load_config();
+        
         add_action('init', array($this, 'init'));
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_scripts'));
@@ -31,11 +36,37 @@ class MpesaIntegrationPlugin {
         add_action('wp_ajax_nopriv_verify_name', array($this, 'verify_name'));
         add_action('wp_ajax_get_download_url', array($this, 'get_download_url'));
         add_action('wp_ajax_nopriv_get_download_url', array($this, 'get_download_url'));
-       // add_action('wp_ajax_test_mpesa_connection', array($this, 'test_mpesa_connection'));
         add_action('wp_ajax_check_mpesa_name', array($this, 'check_mpesa_name'));
         add_action('wp_ajax_nopriv_check_mpesa_name', array($this, 'check_mpesa_name'));
         
         register_activation_hook(__FILE__, array($this, 'create_tables'));
+    }
+
+    // Load configuration from config file
+    private function load_config() {
+        $config_file = MPESA_PLUGIN_PATH . 'config.php';
+        
+        if (file_exists($config_file)) {
+            $this->config = include $config_file;
+        } else {
+            // Show admin notice if config file is missing
+            add_action('admin_notices', array($this, 'config_missing_notice'));
+            $this->config = array(); // Empty config to prevent errors
+        }
+    }
+    
+    // Admin notice for missing config file
+    public function config_missing_notice() {
+        ?>
+        <div class="notice notice-error">
+            <p><strong>M-Pesa Plugin Error:</strong> Configuration file 'config.php' not found. Please create the config file with your M-Pesa credentials.</p>
+        </div>
+        <?php
+    }
+    
+    // Get configuration value
+    private function get_config($key, $default = '') {
+        return isset($this->config[$key]) ? $this->config[$key] : $default;
     }
 
     // Initialize plugin
@@ -60,6 +91,7 @@ class MpesaIntegrationPlugin {
             amount decimal(10,2) DEFAULT '',
             checkout_request_id varchar(100) DEFAULT '',
             merchant_request_id varchar(100) DEFAULT '',
+            mpesa_receipt_number varchar(100) DEFAULT '',
             status varchar(20) DEFAULT 'pending',
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -70,7 +102,7 @@ class MpesaIntegrationPlugin {
         dbDelta($sql);
     }
 
-    // Add admin menu and pages
+    // Add admin menu and pages (removed settings page)
     public function add_admin_menu() {
         add_menu_page(
             'M-Pesa Integration',
@@ -84,22 +116,12 @@ class MpesaIntegrationPlugin {
         
         add_submenu_page(
             'mpesa-integration',
-            'M-Pesa Settings',
-            'Settings',
-            'manage_options',
-            'mpesa-settings',
-            array($this, 'settings_page')
-        );
-        
-        add_submenu_page(
-            'mpesa-integration',
             'Payment Dashboard',
             'Dashboard',
             'manage_options',
             'mpesa-dashboard',
             array($this, 'dashboard_page')
         );
-       
     }
     
     // Enqueue frontend and admin scripts/styles
@@ -119,21 +141,29 @@ class MpesaIntegrationPlugin {
         wp_enqueue_style('mpesa-admin', MPESA_PLUGIN_URL . 'assets/mpesa-admin.css', array(), '1.0.0');
     }
     
-    // Admin main page
+    // Admin main page (updated to show config status instead of settings link)
     public function admin_page() {
+        $config_status = !empty($this->config) ? 'Loaded' : 'Missing';
+        $config_class = !empty($this->config) ? 'notice-success' : 'notice-error';
         ?>
         <div class="wrap">
             <h1>M-Pesa STK Push Till Integration</h1>
+            
+            <div class="notice <?php echo $config_class; ?>">
+                <p><strong>Configuration Status:</strong> <?php echo $config_status; ?></p>
+                <?php if (empty($this->config)): ?>
+                <p>Please create and configure the 'config.php' file with your M-Pesa credentials.</p>
+                <?php endif; ?>
+            </div>
+            
             <div class="card">
                 <h2>STK Push Till Integration (Production Mode)</h2>
                 <p>This plugin integrates M-Pesa STK Push for Till payments in production mode, allowing customers to pay directly from their phones.</p>
                 
-
-                <p><strong>Quick Setup:</strong></p>
+                <p><strong>Configuration:</strong></p>
                 <ul class="card">
-                    <li class="card"><a href="<?php echo admin_url('admin.php?page=mpesa-settings'); ?>">Configure STK Push Till Settings</a></li>
+                    <li class="card">Edit 'config.php' file to update M-Pesa credentials</li>
                     <li class="card"><a href="<?php echo admin_url('admin.php?page=mpesa-dashboard'); ?>">View Payment Dashboard</a></li>
-                    <li class="card"><a href="<?php echo admin_url('admin.php?page=mpesa-test'); ?>">Test Connection</a></li>
                 </ul>
 
                 <p><strong>How STK Push Till works:</strong></p>
@@ -144,90 +174,51 @@ class MpesaIntegrationPlugin {
                     <li>Payment is processed automatically</li>
                     <li>Download access is granted upon successful payment</li>
                 </ol>
-               
                 
                 <div class="notice notice-warning">
-                    <p><strong>Note:</strong> This plugin is configured for production mode. Make sure you have valid production credentials from Safaricom.</p>
+                    <p><strong>Note:</strong> This plugin is configured for production mode. Make sure you have valid production credentials in your config file.</p>
                 </div>
+                
+                <?php if (!empty($this->config)): ?>
+                <div class="card">
+                    <h3>Current Configuration Summary</h3>
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row">Environment:</th>
+                            <td><strong><?php echo esc_html($this->get_config('environment')); ?></strong></td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Business Shortcode:</th>
+                            <td><?php echo esc_html($this->get_config('business_shortcode')); ?></td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Till Number:</th>
+                            <td><?php echo esc_html($this->get_config('till_number')); ?></td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Default Amount:</th>
+                            <td>KSH <?php echo esc_html($this->get_config('default_amount')); ?></td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Callback URL:</th>
+                            <td><?php echo esc_html($this->get_config('callback_url')); ?></td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Consumer Key:</th>
+                            <td><?php echo !empty($this->get_config('consumer_key')) ? 'Configured' : 'Not Set'; ?></td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Consumer Secret:</th>
+                            <td><?php echo !empty($this->get_config('consumer_secret')) ? 'Configured' : 'Not Set'; ?></td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Passkey:</th>
+                            <td><?php echo !empty($this->get_config('passkey')) ? 'Configured' : 'Not Set'; ?></td>
+                        </tr>
+                    </table>
+                </div>
+                <?php endif; ?>
             </div>
-        </div>
-        <?php
-    }
-    
-    // Settings page
-    public function settings_page() {
-        if (isset($_POST['submit'])) {
-            update_option('mpesa_consumer_key', sanitize_text_field($_POST['consumer_key']));
-            update_option('mpesa_consumer_secret', sanitize_text_field($_POST['consumer_secret']));
-            update_option('mpesa_business_shortcode', sanitize_text_field($_POST['business_shortcode']));
-            update_option('mpesa_passkey', sanitize_text_field($_POST['passkey']));
-            update_option('mpesa_callback_url', sanitize_url($_POST['callback_url']));
-            update_option('mpesa_environment', 'production'); // Force production mode
-            
-            echo '<div class="notice notice-success"><p>Settings saved!</p></div>';
-        }
-        
-        $consumer_key = get_option('mpesa_consumer_key', '');
-        $consumer_secret = get_option('mpesa_consumer_secret', '');
-        $business_shortcode = get_option('mpesa_business_shortcode', '');
-        $passkey = get_option('mpesa_passkey', '');
-        $callback_url = get_option('mpesa_callback_url', '');
-        ?>
-        
-        <div class="wrap">
-            <h1>M-Pesa Settings (Production Mode)</h1>
-            <div class="notice notice-info">
-                <p><strong>Production Mode:</strong> This plugin is configured for production use with Till numbers.</p>
-            </div>
-            
-            <form method="post" action="">
-                <table class="form-table">
-                    <tr>
-                        <th scope="row">Environment</th>
-                        <td>
-                            <strong>Production</strong> (Fixed)
-                            <input type="hidden" name="environment" value="production" />
-                            <p class="description">This plugin is set to production mode only.</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Consumer Key</th>
-                        <td>
-                            <input type="text" name="consumer_key" value="<?php echo esc_attr($consumer_key); ?>" class="regular-text" required />
-                            <p class="description">Your production Consumer Key from Safaricom Developer Portal</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Consumer Secret</th>
-                        <td>
-                            <input type="password" name="consumer_secret" value="<?php echo esc_attr($consumer_secret); ?>" class="regular-text" required />
-                            <p class="description">Your production Consumer Secret from Safaricom Developer Portal</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"> Business Shortcode</th>
-                        <td>
-                            <input type="text" name="business_shortcode" value="<?php echo esc_attr($business_shortcode); ?>" class="regular-text" required />
-                            <p class="description">Your business shortcode (e.g., 174379)</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Passkey</th>
-                        <td>
-                            <input type="password" name="passkey" value="<?php echo esc_attr($passkey); ?>" class="regular-text" required />
-                            <p class="description">Your production Passkey from Safaricom</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Callback URL</th>
-                        <td>
-                            <input type="url" name="callback_url" value="<?php echo esc_attr($callback_url); ?>" class="regular-text" required />
-                            <p class="description">URL where M-Pesa will send payment notifications (must be HTTPS)</p>
-                        </td>
-                    </tr>
-                </table>
-                <?php submit_button(); ?>
-            </form>
         </div>
         <?php
     }
@@ -275,11 +266,9 @@ class MpesaIntegrationPlugin {
             FROM $table_name
         ");
         ?>
-      
 
         <div class="wrap">
             <h1>Payment Dashboard</h1>
-
             
             <!-- Statistics -->
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 20px;">
@@ -359,13 +348,11 @@ class MpesaIntegrationPlugin {
         <?php
     }
     
-    
-    
     // Shortcode for download button and payment modal
     public function download_shortcode($atts) {
         $atts = shortcode_atts(array(
-            'recipient' => 'TEACHER DAVID GLOBAL',
-            'amount' => '300'
+            'recipient' => $this->get_config('default_recipient', 'TEACHER DAVID GLOBAL'),
+            'amount' => $this->get_config('default_amount', '300')
         ), $atts);
         
         ob_start();
@@ -434,7 +421,7 @@ class MpesaIntegrationPlugin {
         
         $phone_number = sanitize_text_field($_POST['phone_number']);
         $first_name = sanitize_text_field($_POST['first_name']);
-       // $amount = floatval($_POST['amount']);
+        $amount = floatval($_POST['amount']);
         
         // Validate phone number
         if (!preg_match('/^254[0-9]{9}$/', $phone_number)) {
@@ -451,10 +438,10 @@ class MpesaIntegrationPlugin {
             array(
                 'phone_number' => $phone_number,
                 'first_name' => $first_name,
-               // 'amount' => $amount, '%f',
+                'amount' => $amount,
                 'status' => 'pending'
             ),
-            array('%s', '%s', '%s')
+            array('%s', '%s', '%f', '%s')
         );
         
         if (!$payment_id) {
@@ -465,7 +452,7 @@ class MpesaIntegrationPlugin {
         $payment_id = $wpdb->insert_id;
         
         // Process STK Push
-        $response = $this->initiate_stk_push($phone_number, $payment_id);
+        $response = $this->initiate_stk_push($phone_number, $amount, $payment_id);
         
         if ($response['success']) {
             // Update payment record with M-Pesa response
@@ -559,7 +546,7 @@ public function verify_payment_status() {
     }
 }
 
-//  verify_name method 
+// Get download URL method 
 public function get_download_url() {
     check_ajax_referer('mpesa_nonce', 'nonce');
     
@@ -604,9 +591,9 @@ public function get_download_url() {
 private function generate_secure_download_url($payment_id) {
     // Create a secure token
     $token = wp_generate_password(32, false);
-    $expires = time() + (30 * 60); // 30 minutes from now
+    $expires = time() + $this->get_config('download_token_expiry', 1800); // Default 30 minutes
     
-    // Store the token in WordPress options or database
+    // Store the token in WordPress options
     update_option("download_token_{$payment_id}", array(
         'token' => $token,
         'expires' => $expires,
@@ -654,26 +641,36 @@ public function verify_name() {
     $entered_first = strtolower(trim(explode(' ', $entered_name)[0]));
     $mpesa_first = strtolower(trim(explode(' ', $mpesa_name)[0]));
     
+    // Get minimum name length from config
+    $min_name_length = $this->get_config('minimum_name_length', 3);
+    $strict_verification = $this->get_config('enable_strict_name_verification', true);
+    
     // STRICT name verification
     $name_matches = false;
     $match_type = '';
     
-    // 1. Exact full name match
-    if ($entered_name === $mpesa_name) {
-        $name_matches = true;
-        $match_type = 'full_name';
-    }
-    // 2. First name match (minimum 3 characters to avoid false positives)
-    elseif ($entered_first === $mpesa_first && strlen($entered_first) >= 3) {
-        $name_matches = true;
-        $match_type = 'first_name';
-    }
-    // 3. Partial match (more conservative)
-    elseif (strlen($entered_name) >= 5 && strlen($mpesa_name) >= 5) {
-        if (strpos($entered_name, $mpesa_name) !== false || strpos($mpesa_name, $entered_name) !== false) {
+    if ($strict_verification) {
+        // 1. Exact full name match
+        if ($entered_name === $mpesa_name) {
             $name_matches = true;
-            $match_type = 'partial';
+            $match_type = 'full_name';
         }
+        // 2. First name match (minimum length check)
+        elseif ($entered_first === $mpesa_first && strlen($entered_first) >= $min_name_length) {
+            $name_matches = true;
+            $match_type = 'first_name';
+        }
+        // 3. Partial match (more conservative)
+        elseif (strlen($entered_name) >= 5 && strlen($mpesa_name) >= 5) {
+            if (strpos($entered_name, $mpesa_name) !== false || strpos($mpesa_name, $entered_name) !== false) {
+                $name_matches = true;
+                $match_type = 'partial';
+            }
+        }
+    } else {
+        // Less strict verification if configured
+        $name_matches = ($entered_first === $mpesa_first && strlen($entered_first) >= $min_name_length);
+        $match_type = 'first_name_relaxed';
     }
     
     if ($name_matches) {
@@ -718,7 +715,7 @@ public function verify_name() {
     }
 }
     
-//  method to check if M-Pesa name has been received
+// Method to check if M-Pesa name has been received
 public function check_mpesa_name() {
     check_ajax_referer('mpesa_nonce', 'nonce');
     
@@ -742,25 +739,25 @@ public function check_mpesa_name() {
     ));
 }
     
-    
     private function initiate_stk_push($phone_number, $amount, $payment_id) {
-        $consumer_key = get_option('mpesa_consumer_key');
-        $consumer_secret = get_option('mpesa_consumer_secret');
-        $business_shortcode = get_option('mpesa_business_shortcode');
-        $passkey = get_option('mpesa_passkey');
-        $callback_url = get_option('mpesa_callback_url');
+        // Load credentials from config
+        $consumer_key = $this->get_config('consumer_key');
+        $consumer_secret = $this->get_config('consumer_secret');
+        $business_shortcode = $this->get_config('business_shortcode');
+        $passkey = $this->get_config('passkey');
+        $callback_url = $this->get_config('callback_url');
         
         // Log for debugging
         error_log('M-Pesa STK Push Attempt - Phone: ' . $phone_number . ', Amount: ' . $amount);
         
         // Validate credentials
         if (empty($consumer_key) || empty($consumer_secret) || empty($business_shortcode) || empty($passkey)) {
-            error_log('M-Pesa Error: Missing credentials');
-            return array('success' => false, 'message' => 'Missing M-Pesa credentials. Please check settings.');
+            error_log('M-Pesa Error: Missing credentials in config file');
+            return array('success' => false, 'message' => 'Missing M-Pesa credentials. Please check configuration file.');
         }
         
-        // Production mode only
-        $base_url = 'https://api.safaricom.co.ke';
+        // Get base URL from config
+        $base_url = $this->get_config('api_base_url', 'https://api.safaricom.co.ke');
         
         // Get access token
         $access_token = $this->get_access_token($consumer_key, $consumer_secret, $base_url);
@@ -774,22 +771,21 @@ public function check_mpesa_name() {
         $timestamp = date('YmdHis');
         $password = base64_encode($business_shortcode . $passkey . $timestamp);
         
-        // STK Push request - Try both transaction types
-        $stk_push_url = $base_url . '/mpesa/stkpush/v1/processrequest';
+        // STK Push request
+        $stk_push_url = $base_url . $this->get_config('stk_push_url', '/mpesa/stkpush/v1/processrequest');
         
-        // First try CustomerBuyGoodsOnline (Till)
         $request_data = array(
             'BusinessShortCode' => $business_shortcode,
             'Password' => $password,
             'Timestamp' => $timestamp,
             'TransactionType' => 'CustomerBuyGoodsOnline',
-            'Amount' => intval($amount), // Ensure integer
+            'Amount' => intval($amount),
             'PartyA' => $phone_number,
-            'PartyB' => '6901880', // Till number
+            'PartyB' => $this->get_config('till_number', '6901880'),
             'PhoneNumber' => $phone_number,
             'CallBackURL' => $callback_url,
-            'AccountReference' => 'BOOK' . $payment_id,
-            'TransactionDesc' => 'Book Payment',
+            'AccountReference' => $this->get_config('account_reference_prefix', 'BOOK') . $payment_id,
+            'TransactionDesc' => $this->get_config('transaction_description', 'Book Payment'),
         );
         
         error_log('M-Pesa Request Data: ' . json_encode($request_data));
@@ -841,13 +837,14 @@ public function check_mpesa_name() {
     }
     
     private function query_stk_status($checkout_request_id) {
-        $consumer_key = get_option('mpesa_consumer_key');
-        $consumer_secret = get_option('mpesa_consumer_secret');
-        $business_shortcode = get_option('mpesa_business_shortcode');
-        $passkey = get_option('mpesa_passkey');
+        // Load credentials from config
+        $consumer_key = $this->get_config('consumer_key');
+        $consumer_secret = $this->get_config('consumer_secret');
+        $business_shortcode = $this->get_config('business_shortcode');
+        $passkey = $this->get_config('passkey');
         
-        // Production mode only
-        $base_url = 'https://api.safaricom.co.ke';
+        // Get base URL from config
+        $base_url = $this->get_config('api_base_url', 'https://api.safaricom.co.ke');
         
         // Get access token
         $access_token = $this->get_access_token($consumer_key, $consumer_secret, $base_url);
@@ -861,7 +858,7 @@ public function check_mpesa_name() {
         $password = base64_encode($business_shortcode . $passkey . $timestamp);
         
         // Query STK status
-        $query_url = $base_url . '/mpesa/stkpushquery/v1/query';
+        $query_url = $base_url . $this->get_config('stk_query_url', '/mpesa/stkpushquery/v1/query');
         
         $request_data = array(
             'BusinessShortCode' => $business_shortcode,
@@ -917,7 +914,7 @@ public function check_mpesa_name() {
     }
     
     private function get_access_token($consumer_key, $consumer_secret, $base_url) {
-        $auth_url = $base_url . '/oauth/v1/generate?grant_type=client_credentials';
+        $auth_url = $base_url . $this->get_config('oauth_url', '/oauth/v1/generate?grant_type=client_credentials');
         
         error_log('M-Pesa: Requesting access token from ' . $auth_url);
         
@@ -953,7 +950,7 @@ public function check_mpesa_name() {
             return false;
         }
     }
-    }
+}
 
 // Initialize the plugin
 new MpesaIntegrationPlugin();
