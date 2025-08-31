@@ -135,7 +135,7 @@ jQuery(document).ready(function($) {
                             }
                             $('.mpesa-modal').hide();
                             resetForms();
-                        }, 2000);
+                        }, 4000);
                     }
                 } else {
                     const errorMsg = getErrorMessage(response.data);
@@ -199,11 +199,11 @@ function checkPaymentStatus() {
                             
                             // Start a new interval to keep checking for M-Pesa name
                             setTimeout(function() {
-                                // Check again in 10 seconds for M-Pesa name
+                                // Check again in 15 seconds for M-Pesa name
                                 if (currentPaymentId) {
                                     checkPaymentStatus();
                                 }
-                            }, 10000);
+                            }, 15000);
                             
                             // After 2 minutes of waiting, require manual verification
                             setTimeout(function() {
@@ -222,7 +222,7 @@ function checkPaymentStatus() {
                         showStatus('success', 'Payment verified! Your download will start now.');
                         setTimeout(function() {
                             startDownload();
-                        }, 2000);
+                        }, 3000);
                         break;
                         
                     case 'stk_canceled':

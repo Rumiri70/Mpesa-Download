@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Do-pay
  * Description: WordPress plugin for M-Pesa payment integration with download functionality (Production Till Mode)
- * Version: 1.0.0
+ * Version: 1.0.2
  * Author: Rumiri
  */
 
@@ -31,7 +31,7 @@ class MpesaIntegrationPlugin {
         add_action('wp_ajax_nopriv_verify_name', array($this, 'verify_name'));
         add_action('wp_ajax_get_download_url', array($this, 'get_download_url'));
         add_action('wp_ajax_nopriv_get_download_url', array($this, 'get_download_url'));
-        add_action('wp_ajax_test_mpesa_connection', array($this, 'test_mpesa_connection'));
+       // add_action('wp_ajax_test_mpesa_connection', array($this, 'test_mpesa_connection'));
         add_action('wp_ajax_check_mpesa_name', array($this, 'check_mpesa_name'));
         add_action('wp_ajax_nopriv_check_mpesa_name', array($this, 'check_mpesa_name'));
         
@@ -57,7 +57,7 @@ class MpesaIntegrationPlugin {
             phone_number varchar(15) NOT NULL,
             first_name varchar(100) NOT NULL,
             mpesa_name varchar(100) DEFAULT '',
-            amount decimal(10,2) NOT NULL DEFAULT 1.00,
+            amount decimal(10,2) DEFAULT '',
             checkout_request_id varchar(100) DEFAULT '',
             merchant_request_id varchar(100) DEFAULT '',
             status varchar(20) DEFAULT 'pending',
@@ -99,15 +99,7 @@ class MpesaIntegrationPlugin {
             'mpesa-dashboard',
             array($this, 'dashboard_page')
         );
-        
-        add_submenu_page(
-            'mpesa-integration',
-            'Test Connection',
-            'Test Connection',
-            'manage_options',
-            'mpesa-test',
-            array($this, 'test_page')
-        );
+       
     }
     
     // Enqueue frontend and admin scripts/styles
@@ -135,6 +127,15 @@ class MpesaIntegrationPlugin {
             <div class="card">
                 <h2>STK Push Till Integration (Production Mode)</h2>
                 <p>This plugin integrates M-Pesa STK Push for Till payments in production mode, allowing customers to pay directly from their phones.</p>
+                
+
+                <p><strong>Quick Setup:</strong></p>
+                <ul class="card">
+                    <li class="card"><a href="<?php echo admin_url('admin.php?page=mpesa-settings'); ?>">Configure STK Push Till Settings</a></li>
+                    <li class="card"><a href="<?php echo admin_url('admin.php?page=mpesa-dashboard'); ?>">View Payment Dashboard</a></li>
+                    <li class="card"><a href="<?php echo admin_url('admin.php?page=mpesa-test'); ?>">Test Connection</a></li>
+                </ul>
+
                 <p><strong>How STK Push Till works:</strong></p>
                 <ol>
                     <li>Customer enters phone number and clicks pay</li>
@@ -143,12 +144,7 @@ class MpesaIntegrationPlugin {
                     <li>Payment is processed automatically</li>
                     <li>Download access is granted upon successful payment</li>
                 </ol>
-                <p><strong>Quick Setup:</strong></p>
-                <ul>
-                    <li><a href="<?php echo admin_url('admin.php?page=mpesa-settings'); ?>">Configure STK Push Till Settings</a></li>
-                    <li><a href="<?php echo admin_url('admin.php?page=mpesa-dashboard'); ?>">View Payment Dashboard</a></li>
-                    <li><a href="<?php echo admin_url('admin.php?page=mpesa-test'); ?>">Test Connection</a></li>
-                </ul>
+               
                 
                 <div class="notice notice-warning">
                     <p><strong>Note:</strong> This plugin is configured for production mode. Make sure you have valid production credentials from Safaricom.</p>
@@ -363,155 +359,13 @@ class MpesaIntegrationPlugin {
         <?php
     }
     
-    // Test Connection page
-    public function test_page() {
-        ?>
-        <div class="wrap">
-            <h1>M-Pesa Connection Test</h1>
-            <div class="card">
-                <h2>Test Your M-Pesa Configuration</h2>
-                <p>Use this tool to test your M-Pesa credentials and connection before going live.</p>
-                
-                <div id="test-results" style="margin: 20px 0;"></div>
-                
-                <table class="form-table">
-                    <tr>
-                        <th scope="row">Test Phone Number</th>
-                        <td>
-                            <input type="tel" id="test-phone" placeholder="254712345678" class="regular-text" />
-                            <p class="description">Enter a test phone number (your own) to receive STK push</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Test Amount</th>
-                        <td>
-                            <input type="number" id="test-amount" value="1" min="1" class="regular-text" />
-                            <p class="description">Test amount (minimum 1 KSH)</p>
-                        </td>
-                    </tr>
-                </table>
-                
-                <div style="margin: 20px 0;">
-                    <button id="test-credentials" class="button button-secondary">1. Test Credentials</button>
-                    <button id="test-stk-push" class="button button-primary">2. Test STK Push</button>
-                    <button id="clear-logs" class="button">Clear Results</button>
-                </div>
-                
-                <div style="margin-top: 20px;">
-                    <h3>Test Results:</h3>
-                    <div id="test-log" style="background: #f1f1f1; padding: 15px; border: 1px solid #ccc; height: 400px; overflow-y: auto; font-family: monospace; white-space: pre-wrap;"></div>
-                </div>
-            </div>
-        </div>
-        
-        <script>
-        jQuery(document).ready(function($) {
-            function logMessage(message, type = 'info') {
-                var timestamp = new Date().toLocaleTimeString();
-                var logDiv = $('#test-log');
-                var prefix = type === 'error' ? '❌ ERROR' : type === 'success' ? '✅ SUCCESS' : 'ℹ️ INFO';
-                logDiv.append('[' + timestamp + '] ' + prefix + ': ' + message + '\n');
-                logDiv.scrollTop(logDiv[0].scrollHeight);
-            }
-            
-            $('#clear-logs').click(function() {
-                $('#test-log').empty();
-                $('#test-results').empty();
-            });
-            
-            $('#test-credentials').click(function() {
-                var btn = $(this);
-                btn.prop('disabled', true).text('Testing...');
-                
-                logMessage('Starting credential test...');
-                
-                $.post(ajaxurl, {
-                    action: 'test_mpesa_connection',
-                    test_type: 'credentials',
-                    nonce: '<?php echo wp_create_nonce('mpesa_test_nonce'); ?>'
-                }, function(response) {
-                    if (response.success) {
-                        logMessage('Credentials test passed!', 'success');
-                        logMessage('Access token obtained successfully');
-                        $('#test-results').html('<div class="notice notice-success"><p>✅ Credentials are valid!</p></div>');
-                    } else {
-                        logMessage('Credentials test failed: ' + response.data, 'error');
-                        $('#test-results').html('<div class="notice notice-error"><p>❌ Credentials test failed: ' + response.data + '</p></div>');
-                    }
-                }).fail(function(xhr, status, error) {
-                    logMessage('Request failed: ' + error, 'error');
-                    $('#test-results').html('<div class="notice notice-error"><p>❌ Request failed: ' + error + '</p></div>');
-                }).always(function() {
-                    btn.prop('disabled', false).text('1. Test Credentials');
-                });
-            });
-            
-            $('#test-stk-push').click(function() {
-                var phone = $('#test-phone').val();
-                var amount = $('#test-amount').val();
-                
-                if (!phone || !amount) {
-                    alert('Please enter phone number and amount');
-                    return;
-                }
-                
-                var btn = $(this);
-                btn.prop('disabled', true).text('Sending STK Push...');
-                
-                logMessage('Starting STK Push test...');
-                logMessage('Phone: ' + phone + ', Amount: KSH ' + amount);
-                
-                $.post(ajaxurl, {
-                    action: 'test_mpesa_connection',
-                    test_type: 'stk_push',
-                    phone: phone,
-                    amount: amount,
-                    nonce: '<?php echo wp_create_nonce('mpesa_test_nonce'); ?>'
-                }, function(response) {
-                    if (response.success) {
-                        logMessage('STK Push sent successfully!', 'success');
-                        logMessage('Check your phone for the payment prompt');
-                        $('#test-results').html('<div class="notice notice-success"><p>✅ STK Push sent! Check your phone.</p></div>');
-                    } else {
-                        logMessage('STK Push failed: ' + response.data, 'error');
-                        $('#test-results').html('<div class="notice notice-error"><p>❌ STK Push failed: ' + response.data + '</p></div>');
-                    }
-                }).fail(function(xhr, status, error) {
-                    logMessage('Request failed: ' + error, 'error');
-                    $('#test-results').html('<div class="notice notice-error"><p>❌ Request failed: ' + error + '</p></div>');
-                }).always(function() {
-                    btn.prop('disabled', false).text('2. Test STK Push');
-                });
-            });
-        });
-        </script>
-        
-        <style>
-        .notice {
-            padding: 10px 15px;
-            margin: 10px 0;
-            border-left: 4px solid;
-        }
-        .notice-success {
-            background-color: #d4edda;
-            border-color: #28a745;
-            color: #155724;
-        }
-        .notice-error {
-            background-color: #f8d7da;
-            border-color: #dc3545;
-            color: #721c24;
-        }
-        </style>
-        </div>
-        <?php
-    }
+    
     
     // Shortcode for download button and payment modal
     public function download_shortcode($atts) {
         $atts = shortcode_atts(array(
             'recipient' => 'TEACHER DAVID GLOBAL',
-            'amount' => '1'
+            'amount' => '300'
         ), $atts);
         
         ob_start();
@@ -529,7 +383,7 @@ class MpesaIntegrationPlugin {
                     <form id="mpesa-payment-form">
                         <div class="mpesa-form-group">
                             <label for="phone_number">Phone Number:</label>
-                            <input type="tel" id="phone_number" name="phone_number" placeholder="254712345678" required>
+                            <input type="tel" id="phone_number" name="phone_number" placeholder="254123456789" required>
                         </div>
                         <div class="mpesa-form-group">
                             <label for="first_name">First Mpesa Name:</label>
@@ -538,7 +392,7 @@ class MpesaIntegrationPlugin {
                         <input type="hidden" name="amount" value="<?php echo esc_attr($atts['amount']); ?>">
                         <input type="hidden" name="recipient" value="<?php echo esc_attr($atts['recipient']); ?>">
                         
-                        <p>For your safety: All data submitted is strictly confidential and protected.</p>
+                        <p>For your safety: All data submitted is strictly confidential and protected!</p>
                         
                         <div class="mpesa-form-actions">
                             <button type="submit" id="mpesa-pay-btn">Pay Now</button>
@@ -580,7 +434,7 @@ class MpesaIntegrationPlugin {
         
         $phone_number = sanitize_text_field($_POST['phone_number']);
         $first_name = sanitize_text_field($_POST['first_name']);
-        $amount = floatval($_POST['amount']);
+       // $amount = floatval($_POST['amount']);
         
         // Validate phone number
         if (!preg_match('/^254[0-9]{9}$/', $phone_number)) {
@@ -597,10 +451,10 @@ class MpesaIntegrationPlugin {
             array(
                 'phone_number' => $phone_number,
                 'first_name' => $first_name,
-                'amount' => $amount,
+               // 'amount' => $amount, '%f',
                 'status' => 'pending'
             ),
-            array('%s', '%s', '%f', '%s')
+            array('%s', '%s', '%s')
         );
         
         if (!$payment_id) {
@@ -611,7 +465,7 @@ class MpesaIntegrationPlugin {
         $payment_id = $wpdb->insert_id;
         
         // Process STK Push
-        $response = $this->initiate_stk_push($phone_number, $amount, $payment_id);
+        $response = $this->initiate_stk_push($phone_number, $payment_id);
         
         if ($response['success']) {
             // Update payment record with M-Pesa response
@@ -840,7 +694,7 @@ public function verify_name() {
             
             wp_send_json_success(array(
                 'verified' => true,
-                'message' => 'Name verification successful! You can now download.'
+                'message' => 'Name verification successful! download starting...'
             ));
         } else {
             wp_send_json_error('Failed to update payment status.');
@@ -863,27 +717,6 @@ public function verify_name() {
         wp_send_json_error("Name verification failed. M-Pesa name: '{$payment->mpesa_name}', You entered: '{$real_name}'. Please contact support for help.");
     }
 }
-
-    
-    public function test_mpesa_connection() {
-        check_ajax_referer('mpesa_test_nonce', 'nonce');
-        
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error('Unauthorized access');
-            return;
-        }
-        
-        $test_type = sanitize_text_field($_POST['test_type']);
-        
-        if ($test_type === 'credentials') {
-            $this->test_credentials();
-        } elseif ($test_type === 'stk_push') {
-            $this->test_stk_push();
-        } else {
-            wp_send_json_error('Invalid test type');
-        }
-    }
-
     
 //  method to check if M-Pesa name has been received
 public function check_mpesa_name() {
@@ -909,109 +742,6 @@ public function check_mpesa_name() {
     ));
 }
     
-    private function test_credentials() {
-        $consumer_key = get_option('mpesa_consumer_key');
-        $consumer_secret = get_option('mpesa_consumer_secret');
-        $business_shortcode = get_option('mpesa_business_shortcode');
-        $passkey = get_option('mpesa_passkey');
-        $callback_url = get_option('mpesa_callback_url');
-        
-        // Check if credentials are configured
-        if (empty($consumer_key)) {
-            wp_send_json_error('Consumer Key is not configured');
-            return;
-        }
-        
-        if (empty($consumer_secret)) {
-            wp_send_json_error('Consumer Secret is not configured');
-            return;
-        }
-        
-        if (empty($business_shortcode)) {
-            wp_send_json_error('Business Shortcode (Till Number) is not configured');
-            return;
-        }
-        
-        if (empty($passkey)) {
-            wp_send_json_error('Passkey is not configured');
-            return;
-        }
-        
-        if (empty($callback_url)) {
-            wp_send_json_error('Callback URL is not configured');
-            return;
-        }
-        
-        // Test authentication
-        $base_url = 'https://api.safaricom.co.ke';
-        $access_token = $this->get_access_token($consumer_key, $consumer_secret, $base_url);
-        
-        if (!$access_token) {
-            wp_send_json_error('Failed to obtain access token. Check your Consumer Key and Secret.');
-            return;
-        }
-        
-        wp_send_json_success('All credentials are valid and authentication successful!');
-    }
-    
-    private function test_stk_push() {
-        $phone_number = sanitize_text_field($_POST['phone']);
-        $amount = floatval($_POST['amount']);
-        
-        // Validate phone number
-        if (!preg_match('/^254[0-9]{9}$/', $phone_number)) {
-            wp_send_json_error('Invalid phone number format. Use 254XXXXXXXXX');
-            return;
-        }
-        
-        if ($amount < 1) {
-            wp_send_json_error('Amount must be at least 1 KSH');
-            return;
-        }
-        
-        // Create a test payment record
-        global $wpdb;
-        $table_name = $wpdb->prefix . 'mpesa_payments';
-        
-        $payment_id = $wpdb->insert(
-            $table_name,
-            array(
-                'phone_number' => $phone_number,
-                'first_name' => 'TEST',
-                'amount' => $amount,
-                'status' => 'test'
-            ),
-            array('%s', '%s', '%f', '%s')
-        );
-        
-        if (!$payment_id) {
-            wp_send_json_error('Failed to create test payment record');
-            return;
-        }
-        
-        $payment_id = $wpdb->insert_id;
-        
-        // Test STK Push
-        $response = $this->initiate_stk_push($phone_number, $amount, $payment_id);
-        
-        if ($response['success']) {
-            // Update test record
-            $wpdb->update(
-                $table_name,
-                array(
-                    'checkout_request_id' => $response['checkout_request_id'],
-                    'merchant_request_id' => $response['merchant_request_id']
-                ),
-                array('id' => $payment_id),
-                array('%s', '%s'),
-                array('%d')
-            );
-            
-            wp_send_json_success('STK Push sent successfully! Check your phone.');
-        } else {
-            wp_send_json_error($response['message']);
-        }
-    }
     
     private function initiate_stk_push($phone_number, $amount, $payment_id) {
         $consumer_key = get_option('mpesa_consumer_key');
@@ -1090,34 +820,6 @@ public function check_mpesa_name() {
         if (is_null($response_data)) {
             error_log('M-Pesa Error: Invalid JSON response');
             return array('success' => false, 'message' => 'Invalid response from M-Pesa API');
-        }
-        
-        // Check if Till transaction failed, try Paybill instead
-        if (isset($response_data['errorCode']) && $response_data['errorCode'] === '400.002.02') {
-            error_log('Till failed, trying Paybill transaction type...');
-            
-            // Try CustomerPayBillOnline (Paybill)
-            $request_data['TransactionType'] = 'CustomerPayBillOnline';
-            $request_data['AccountReference'] = $business_shortcode; // For paybill, use shortcode as account reference
-            
-            $response = wp_remote_post($stk_push_url, array(
-                'headers' => array(
-                    'Authorization' => 'Bearer ' . $access_token,
-                    'Content-Type' => 'application/json'
-                ),
-                'body' => json_encode($request_data),
-                'timeout' => 60,
-                'sslverify' => true
-            ));
-            
-            if (is_wp_error($response)) {
-                return array('success' => false, 'message' => 'Connection failed: ' . $response->get_error_message());
-            }
-            
-            $response_body = wp_remote_retrieve_body($response);
-            $response_data = json_decode($response_body, true);
-            
-            error_log('M-Pesa Paybill Response: ' . $response_body);
         }
         
         if (isset($response_data['ResponseCode']) && $response_data['ResponseCode'] === '0') {
@@ -1251,12 +953,7 @@ public function check_mpesa_name() {
             return false;
         }
     }
-    
-    private function generate_download_url() {
-        // Use your actual file URL
-        return '/wp-content/plugins/mpesa-integration/download.php';
     }
-}
 
 // Initialize the plugin
 new MpesaIntegrationPlugin();

@@ -199,14 +199,14 @@ jQuery(document).ready(function($) {
                                 // No M-Pesa name yet - wait a bit more or ask for manual verification
                                 showStatus('info', 'Payment received. Waiting for name confirmation...');
                                 
-                                // Wait 30 seconds then show manual verification
+                                // Wait 50 seconds then show manual verification
                                 setTimeout(function() {
                                     if (!statusCheckInterval) { // Only if not already cleared
                                         showStatus('warning', 'Name verification required.');
                                         $('#mpesa-payment-modal').hide();
                                         $('#mpesa-name-modal').show();
                                     }
-                                }, 30000);
+                                }, 50000);
                             }
                             break;
                             
@@ -216,7 +216,7 @@ jQuery(document).ready(function($) {
                             showStatus('success', 'Payment verified! Your download will start now.');
                             setTimeout(function() {
                                 startDownload();
-                            }, 2000);
+                            }, 3000);
                             break;
                             
                         case 'stk_canceled':
