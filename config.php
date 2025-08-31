@@ -25,7 +25,7 @@ return array(
     'environment' => 'production',
     
     // Default payment settings
-    'default_amount' => 300,
+    'default_amount' => 1,
     'default_recipient' => 'TEACHER DAVID GLOBAL',
     
     // API URLs (production only)
