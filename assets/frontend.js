@@ -129,6 +129,9 @@ jQuery(document).ready(function($) {
             return;
         }
         
+        // Show loading state
+        showStatus('info', 'Verifying name...');
+        
         $.ajax({
             url: mpesa_ajax.ajax_url,
             type: 'POST',
@@ -182,7 +185,7 @@ jQuery(document).ready(function($) {
         }, 10000); // Check every 10 seconds
     }
     
-    // FIXED: Proper handling of all STK push outcomes
+    // FIXED: Proper handling of all STK push outcomes with proper UI updates
     function checkPaymentStatus() {
         // Don't proceed if process is already complete
         if (isProcessComplete) {
@@ -209,14 +212,21 @@ jQuery(document).ready(function($) {
                     
                     switch (status) {
                         case 'done':
-                            stopAllProcesses();
+                            // Don't stop processes yet - we need to complete verification first
                             
                             // CRITICAL: Only proceed if we have M-Pesa name for verification
                             if (mpesaName && mpesaName.trim() !== '') {
                                 // We have M-Pesa name - do automatic verification
-                                autoVerifyName(enteredName, mpesaName);
+                                showStatus('info', 'Payment received! Verifying your name...');
+                                console.log('Calling autoVerifyName with:', enteredName, mpesaName);
+                                
+                                // Small delay to ensure UI updates, then verify
+                                setTimeout(function() {
+                                    autoVerifyName(enteredName, mpesaName);
+                                }, 500);
                             } else {
                                 // NO M-PESA NAME YET - Show manual verification immediately
+                                stopAllProcesses(); // Only stop here if no name
                                 showStatus('warning', 'Payment received but name verification required. Please enter your M-Pesa name.');
                                 $('#mpesa-payment-modal').hide();
                                 $('#mpesa-name-modal').show();
@@ -247,24 +257,44 @@ jQuery(document).ready(function($) {
                             break;
                             
                         case 'failed':
-                        case 'timeout':
-                            // Payment failed or timed out - STOP PROCESS
+                            // Payment failed - STOP PROCESS
                             stopAllProcesses();
-                            showStatus('error', 'Payment failed or timed out. Please try again.');
+                            showStatus('error', 'Payment failed. Please try again.');
+                            resetPaymentForm();
+                            break;
+                            
+                        case 'timeout':
+                            // Payment timed out - STOP PROCESS
+                            stopAllProcesses();
+                            showStatus('error', 'Payment timed out. Please try again.');
+                            resetPaymentForm();
+                            break;
+                            
+                        case 'insufficient_funds':
+                            // Insufficient funds - STOP PROCESS
+                            stopAllProcesses();
+                            showStatus('error', 'Insufficient funds. Please ensure you have enough balance and try again.');
+                            resetPaymentForm();
+                            break;
+                            
+                        case 'invalid_phone':
+                            // Invalid phone number - STOP PROCESS
+                            stopAllProcesses();
+                            showStatus('error', 'Invalid phone number. Please check and try again.');
                             resetPaymentForm();
                             break;
                             
                         case 'pending':
-                            // Still waiting - continue checking but only if not complete
+                            // Still waiting - continue checking but update message
                             if (!isProcessComplete) {
-                                showStatus('info', 'Waiting for payment confirmation...');
+                                showStatus('info', 'Waiting for payment confirmation... Please complete the payment on your phone.');
                             }
                             break;
                             
                         default:
                             // Unknown status - continue checking but with warning
                             if (!isProcessComplete) {
-                                showStatus('info', 'Checking payment status...');
+                                showStatus('warning', 'Checking payment status... Please wait.');
                             }
                     }
                 } else {
@@ -313,6 +343,8 @@ jQuery(document).ready(function($) {
         
         if (nameMatches) {
             // Names match - call server verification to update database
+            showStatus('info', 'Names match! Completing verification...');
+            
             $.ajax({
                 url: mpesa_ajax.ajax_url,
                 type: 'POST',
@@ -323,20 +355,28 @@ jQuery(document).ready(function($) {
                     real_name: mpesaName // Use M-Pesa name for verification
                 },
                 success: function(response) {
-                    if (response.success && response.data.verified) {
+                    console.log('Auto-verify response:', response);
+                    
+                    if (response.success && response.data && response.data.verified) {
+                        stopAllProcesses(); // Stop processes when verification succeeds
                         showStatus('success', 'Payment verified! Your download will start now.');
                         setTimeout(function() {
                             startDownload();
                         }, 2000);
                     } else {
                         // Auto-verification failed on server, show manual form
+                        console.log('Auto-verification failed, showing manual form');
+                        stopAllProcesses(); // Stop processes before showing manual form
                         showManualVerification();
                     }
                 },
-                error: function() {
+                error: function(xhr, status, error) {
+                    console.log('Auto-verify AJAX error:', xhr, status, error);
                     // Auto-verification failed, show manual form
+                    stopAllProcesses(); // Stop processes on error
                     showManualVerification();
-                }
+                },
+                timeout: 15000 // 15 second timeout
             });
         } else {
             // Names don't match - REQUIRE manual verification
@@ -358,6 +398,8 @@ jQuery(document).ready(function($) {
 
     // SECURE download function - only called after verification
     function startDownload() {
+        showStatus('info', 'Generating download link...');
+        
         // Get download URL from server (this should generate a secure, time-limited URL)
         $.ajax({
             url: mpesa_ajax.ajax_url,
@@ -369,6 +411,7 @@ jQuery(document).ready(function($) {
             },
             success: function(response) {
                 if (response.success && response.data.download_url) {
+                    showStatus('success', 'Download starting...');
                     // Use server-provided download URL
                     window.location.href = response.data.download_url;
                 } else {
@@ -379,9 +422,12 @@ jQuery(document).ready(function($) {
                 showStatus('error', 'Failed to get download link. Please contact +254 727 054 097 support.');
             },
             complete: function() {
-                stopAllProcesses();
-                $('.mpesa-modal').hide();
-                resetForms();
+                // Small delay before cleaning up to allow download to start
+                setTimeout(function() {
+                    stopAllProcesses();
+                    $('.mpesa-modal').hide();
+                    resetForms();
+                }, 3000);
             }
         });
     }
