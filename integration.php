@@ -358,20 +358,23 @@ class IntegrationPlugin {
             </table>
 
             <!-- Pagination -->
-             <?php
+            <?php
              // your table rendering here (loop through $payments)
 
-            echo '<div class="tablenav"><div class="tablenav-pages">';
+                echo '<div class="tablenav"><div class="tablenav-pages">';
 
-            echo paginate_links(array(
-                'base'      => add_query_arg('paged', '%#%'),
-                'format'    => '',
-                'prev_text' => __('&laquo; Prev'),
-                'next_text' => __('Next &raquo;'),
-                'total'     => $total_pages,
-                'current'   => $page,
-            ));
+                echo paginate_links(array(
+                    'base'      => add_query_arg( array( 'page' => $_GET['page'], 'paged' => '%#%' ) ),
+                    'format'    => '',
+                    'prev_text' => __('&laquo; Prev'),
+                    'next_text' => __('Next &raquo;'),
+                    'total'     => $total_pages,
+                    'current'   => $page,
+                ));
+
+                echo '</div></div>';
             ?>
+
 
         </div>
         <?php
