@@ -243,18 +243,37 @@ class IntegrationPlugin {
         }
 
         // Pagination
-        $per_page = 20;
-        $page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
-        $offset = ($page - 1) * $per_page;
-        
-        $total_payments = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
-        $total_pages = ceil($total_payments / $per_page);
-        
-        $payments = $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM $table_name ORDER BY created_at DESC LIMIT %d OFFSET %d",
-            $per_page,
-            $offset
-        ));
+        global $wpdb;
+
+$per_page = 20;
+$page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
+$offset = ($page - 1) * $per_page;
+
+$total_payments = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
+$total_pages = ceil($total_payments / $per_page);
+
+$payments = $wpdb->get_results(
+    $wpdb->prepare(
+        "SELECT * FROM $table_name ORDER BY created_at DESC LIMIT %d OFFSET %d",
+        $per_page,
+        $offset
+    )
+);
+
+// your table rendering here (loop through $payments)
+
+echo '<div class="tablenav"><div class="tablenav-pages">';
+
+echo paginate_links(array(
+    'base'      => add_query_arg('paged', '%#%'),
+    'format'    => '',
+    'prev_text' => __('&laquo; Prev'),
+    'next_text' => __('Next &raquo;'),
+    'total'     => $total_pages,
+    'current'   => $page,
+));
+
+echo '</div></div>';
         
         // Statistics
         $stats = $wpdb->get_row("
