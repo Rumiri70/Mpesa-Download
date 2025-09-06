@@ -480,9 +480,6 @@ class IntegrationPlugin {
         }
     }
     
-/**
- * SOLUTION 1: Improved verify_payment_status with fallback logic
- */
 public function verify_payment_status() {
     check_ajax_referer('mpesa_nonce', 'nonce');
     
@@ -498,63 +495,17 @@ public function verify_payment_status() {
         return;
     }
     
-    // If payment is already successful, return immediately
-    if ($payment->status === 'success') {
+    // If payment is already completed (successful or failed), return current status
+    if (in_array($payment->status, ['done', 'success', 'stk_canceled', 'invalid_name', 'failed', 'timeout', 'insufficient_funds', 'invalid_phone'])) {
         wp_send_json_success(array(
-            'status' => 'success',
+            'status' => $payment->status,
             'mpesa_name' => $payment->mpesa_name,
             'entered_name' => $payment->first_name
         ));
         return;
     }
     
-    // If payment is 'done' and has been for more than 3 minutes, auto-approve it
-    if ($payment->status === 'done') {
-        $updated_time = strtotime($payment->updated_at);
-        $current_time = current_time('timestamp');
-        
-        // If 'done' for more than 3 minutes and no M-Pesa name, auto-approve
-        if (($current_time - $updated_time) > 180) { // 3 minutes
-            if (empty($payment->mpesa_name)) {
-                // No M-Pesa name received after 3 minutes - auto-approve with entered name
-                $wpdb->update(
-                    $table_name,
-                    array(
-                        'status' => 'success',
-                        'mpesa_name' => $payment->first_name . ' (AUTO-APPROVED)',
-                        'updated_at' => current_time('mysql')
-                    ),
-                    array('id' => $payment_id),
-                    array('%s', '%s', '%s'),
-                    array('%d')
-                );
-                
-                error_log("Auto-approved payment ID {$payment_id} after 3 minutes without M-Pesa name");
-                
-                wp_send_json_success(array(
-                    'status' => 'success',
-                    'mpesa_name' => $payment->first_name . ' (AUTO-APPROVED)',
-                    'entered_name' => $payment->first_name
-                ));
-                return;
-            }
-        }
-        
-        // If we have M-Pesa name, try auto-verification
-        if (!empty($payment->mpesa_name)) {
-            $verification_result = $this->auto_verify_name_server_side($payment);
-            if ($verification_result) {
-                wp_send_json_success(array(
-                    'status' => 'success',
-                    'mpesa_name' => $payment->mpesa_name,
-                    'entered_name' => $payment->first_name
-                ));
-                return;
-            }
-        }
-    }
-    
-    // Continue with existing STK query logic...
+    // Query M-Pesa API for payment status
     if (!empty($payment->checkout_request_id)) {
         $stk_result = $this->query_stk_status($payment->checkout_request_id);
         
@@ -563,6 +514,7 @@ public function verify_payment_status() {
             $mpesa_name = isset($stk_result['mpesa_name']) ? $stk_result['mpesa_name'] : '';
             $receipt_number = isset($stk_result['receipt_number']) ? $stk_result['receipt_number'] : '';
             
+            // Update payment record with new status, M-Pesa name, and receipt number
             $update_data = array('status' => $new_status);
             $update_format = array('%s');
             
@@ -584,13 +536,8 @@ public function verify_payment_status() {
                 array('%d')
             );
             
-            // If status is 'done' and we have name, try auto-verification
-            if ($new_status === 'done' && !empty($mpesa_name)) {
-                $updated_payment = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $payment_id));
-                if ($this->auto_verify_name_server_side($updated_payment)) {
-                    $new_status = 'success';
-                }
-            }
+            // Log the status for debugging
+            error_log("Payment ID {$payment_id} status updated to: {$new_status}");
             
             wp_send_json_success(array(
                 'status' => $new_status,
@@ -598,188 +545,20 @@ public function verify_payment_status() {
                 'entered_name' => $payment->first_name
             ));
         } else {
+            // If API query fails, keep status as pending
             wp_send_json_success(array(
-                'status' => $payment->status,
+                'status' => 'pending',
                 'mpesa_name' => $payment->mpesa_name,
                 'entered_name' => $payment->first_name
             ));
         }
     } else {
+        // No checkout request ID, keep as pending
         wp_send_json_success(array(
-            'status' => $payment->status,
+            'status' => 'pending',
             'mpesa_name' => $payment->mpesa_name,
             'entered_name' => $payment->first_name
         ));
-    }
-}
-
-/**
- * SOLUTION 2: Server-side auto name verification
- */
-private function auto_verify_name_server_side($payment) {
-    if ($payment->status !== 'done' || empty($payment->mpesa_name)) {
-        return false;
-    }
-    
-    global $wpdb;
-    $table_name = $wpdb->prefix . 'mpesa_payments';
-    
-    // Clean and normalize names
-    $entered_name = strtolower(trim(preg_replace('/\s+/', ' ', $payment->first_name)));
-    $mpesa_name = strtolower(trim(preg_replace('/\s+/', ' ', $payment->mpesa_name)));
-    
-    // Extract first names
-    $entered_first = strtolower(trim(explode(' ', $entered_name)[0]));
-    $mpesa_first = strtolower(trim(explode(' ', $mpesa_name)[0]));
-    
-    $name_matches = false;
-    
-    // Liberal matching for better user experience
-    if ($entered_name === $mpesa_name) {
-        $name_matches = true;
-    } elseif ($entered_first === $mpesa_first && strlen($entered_first) >= 2) {
-        $name_matches = true;
-    } elseif (strlen($entered_name) >= 3 && strlen($mpesa_name) >= 3) {
-        // Check for partial matches
-        if (strpos($entered_name, $mpesa_name) !== false || 
-            strpos($mpesa_name, $entered_name) !== false ||
-            strpos($entered_first, $mpesa_first) !== false ||
-            strpos($mpesa_first, $entered_first) !== false) {
-            $name_matches = true;
-        }
-    }
-    
-    if ($name_matches) {
-        $updated = $wpdb->update(
-            $table_name,
-            array(
-                'status' => 'success',
-                'updated_at' => current_time('mysql')
-            ),
-            array('id' => $payment->id),
-            array('%s', '%s'),
-            array('%d')
-        );
-        
-        if ($updated) {
-            error_log("Auto-verified payment ID {$payment->id}: '{$payment->first_name}' matches '{$payment->mpesa_name}'");
-            return true;
-        }
-    }
-    
-    return false;
-}
-
-/**
- * SOLUTION 3: Admin emergency approval method
- */
-public function emergency_approve_payment() {
-    check_ajax_referer('mpesa_nonce', 'nonce');
-    
-    if (!current_user_can('manage_options')) {
-        wp_send_json_error('Unauthorized');
-        return;
-    }
-    
-    $payment_id = intval($_POST['payment_id']);
-    $reason = sanitize_text_field($_POST['reason'] ?? 'Manual approval');
-    
-    global $wpdb;
-    $table_name = $wpdb->prefix . 'mpesa_payments';
-    
-    $updated = $wpdb->update(
-        $table_name,
-        array(
-            'status' => 'success',
-            'mpesa_name' => $reason,
-            'updated_at' => current_time('mysql')
-        ),
-        array('id' => $payment_id),
-        array('%s', '%s', '%s'),
-        array('%d')
-    );
-    
-    if ($updated) {
-        error_log("Emergency approval for payment ID {$payment_id}: {$reason}");
-        wp_send_json_success('Payment approved');
-    } else {
-        wp_send_json_error('Failed to approve payment');
-    }
-}
-
-/**
- * SOLUTION 4: Improved callback handling with better matching
- */
-public function handle_callback_data($callback_data) {
-    global $wpdb;
-    $table_name = $wpdb->prefix . 'mpesa_payments';
-    
-    // Handle C2B confirmation with improved matching
-    if (isset($callback_data['TransactionType']) && isset($callback_data['FirstName'])) {
-        $first_name = $callback_data['FirstName'];
-        $amount = floatval($callback_data['TransAmount'] ?? 0);
-        $trans_time = $callback_data['TransTime'] ?? '';
-        
-        if (!empty($first_name) && $amount > 0) {
-            // Try multiple matching strategies
-            $matching_strategies = [
-                // Strategy 1: Recent payment with exact amount and 'done' status
-                $wpdb->prepare("
-                    SELECT * FROM $table_name 
-                    WHERE amount = %f 
-                    AND status = 'done' 
-                    AND (mpesa_name IS NULL OR mpesa_name = '') 
-                    AND updated_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)
-                    ORDER BY updated_at DESC LIMIT 1
-                ", $amount),
-                
-                // Strategy 2: Any recent payment with exact amount
-                $wpdb->prepare("
-                    SELECT * FROM $table_name 
-                    WHERE amount = %f 
-                    AND status IN ('done', 'pending')
-                    AND (mpesa_name IS NULL OR mpesa_name = '') 
-                    AND created_at >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)
-                    ORDER BY created_at DESC LIMIT 1
-                ", $amount),
-                
-                // Strategy 3: Similar amount (±5 KSH) for edge cases
-                $wpdb->prepare("
-                    SELECT * FROM $table_name 
-                    WHERE ABS(amount - %f) <= 5 
-                    AND status IN ('done', 'pending')
-                    AND (mpesa_name IS NULL OR mpesa_name = '') 
-                    AND created_at >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)
-                    ORDER BY created_at DESC LIMIT 1
-                ", $amount)
-            ];
-            
-            foreach ($matching_strategies as $query) {
-                $payment = $wpdb->get_row($query);
-                if ($payment) {
-                    $updated = $wpdb->update(
-                        $table_name,
-                        array(
-                            'mpesa_name' => $first_name,
-                            'status' => 'done', // Ensure it's at least 'done'
-                            'updated_at' => current_time('mysql')
-                        ),
-                        array('id' => $payment->id),
-                        array('%s', '%s', '%s'),
-                        array('%d')
-                    );
-                    
-                    if ($updated) {
-                        error_log("C2B matched payment ID {$payment->id} with name: {$first_name}");
-                        
-                        // Try immediate auto-verification
-                        $updated_payment = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $payment->id));
-                        $this->auto_verify_name_server_side($updated_payment);
-                        break;
-                    }
-                }
-            }
-        }
     }
 }
 
