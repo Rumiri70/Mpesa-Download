@@ -480,6 +480,9 @@ class IntegrationPlugin {
         }
     }
     
+/**
+ * SOLUTION 1: Improved verify_payment_status with fallback logic
+ */
 public function verify_payment_status() {
     check_ajax_referer('mpesa_nonce', 'nonce');
     
@@ -495,17 +498,63 @@ public function verify_payment_status() {
         return;
     }
     
-    // If payment is already completed (successful or failed), return current status
-    if (in_array($payment->status, ['done', 'success', 'stk_canceled', 'invalid_name', 'failed', 'timeout', 'insufficient_funds', 'invalid_phone'])) {
+    // If payment is already successful, return immediately
+    if ($payment->status === 'success') {
         wp_send_json_success(array(
-            'status' => $payment->status,
+            'status' => 'success',
             'mpesa_name' => $payment->mpesa_name,
             'entered_name' => $payment->first_name
         ));
         return;
     }
     
-    // Query M-Pesa API for payment status
+    // If payment is 'done' and has been for more than 3 minutes, auto-approve it
+    if ($payment->status === 'done') {
+        $updated_time = strtotime($payment->updated_at);
+        $current_time = current_time('timestamp');
+        
+        // If 'done' for more than 3 minutes and no M-Pesa name, auto-approve
+        if (($current_time - $updated_time) > 180) { // 3 minutes
+            if (empty($payment->mpesa_name)) {
+                // No M-Pesa name received after 3 minutes - auto-approve with entered name
+                $wpdb->update(
+                    $table_name,
+                    array(
+                        'status' => 'success',
+                        'mpesa_name' => $payment->first_name . ' (AUTO-APPROVED)',
+                        'updated_at' => current_time('mysql')
+                    ),
+                    array('id' => $payment_id),
+                    array('%s', '%s', '%s'),
+                    array('%d')
+                );
+                
+                error_log("Auto-approved payment ID {$payment_id} after 3 minutes without M-Pesa name");
+                
+                wp_send_json_success(array(
+                    'status' => 'success',
+                    'mpesa_name' => $payment->first_name . ' (AUTO-APPROVED)',
+                    'entered_name' => $payment->first_name
+                ));
+                return;
+            }
+        }
+        
+        // If we have M-Pesa name, try auto-verification
+        if (!empty($payment->mpesa_name)) {
+            $verification_result = $this->auto_verify_name_server_side($payment);
+            if ($verification_result) {
+                wp_send_json_success(array(
+                    'status' => 'success',
+                    'mpesa_name' => $payment->mpesa_name,
+                    'entered_name' => $payment->first_name
+                ));
+                return;
+            }
+        }
+    }
+    
+    // Continue with existing STK query logic...
     if (!empty($payment->checkout_request_id)) {
         $stk_result = $this->query_stk_status($payment->checkout_request_id);
         
@@ -514,7 +563,6 @@ public function verify_payment_status() {
             $mpesa_name = isset($stk_result['mpesa_name']) ? $stk_result['mpesa_name'] : '';
             $receipt_number = isset($stk_result['receipt_number']) ? $stk_result['receipt_number'] : '';
             
-            // Update payment record with new status, M-Pesa name, and receipt number
             $update_data = array('status' => $new_status);
             $update_format = array('%s');
             
@@ -536,8 +584,13 @@ public function verify_payment_status() {
                 array('%d')
             );
             
-            // Log the status for debugging
-            error_log("Payment ID {$payment_id} status updated to: {$new_status}");
+            // If status is 'done' and we have name, try auto-verification
+            if ($new_status === 'done' && !empty($mpesa_name)) {
+                $updated_payment = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $payment_id));
+                if ($this->auto_verify_name_server_side($updated_payment)) {
+                    $new_status = 'success';
+                }
+            }
             
             wp_send_json_success(array(
                 'status' => $new_status,
@@ -545,22 +598,20 @@ public function verify_payment_status() {
                 'entered_name' => $payment->first_name
             ));
         } else {
-            // If API query fails, keep status as pending
             wp_send_json_success(array(
-                'status' => 'pending',
+                'status' => $payment->status,
                 'mpesa_name' => $payment->mpesa_name,
                 'entered_name' => $payment->first_name
             ));
         }
     } else {
-        // No checkout request ID, keep as pending
         wp_send_json_success(array(
-            'status' => 'pending',
+            'status' => $payment->status,
             'mpesa_name' => $payment->mpesa_name,
             'entered_name' => $payment->first_name
         ));
     }
-}
+}}
 
 // Get download URL method 
 public function get_download_url() {
